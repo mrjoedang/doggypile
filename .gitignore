@@ -1,0 +1,9 @@
+node_modules/
+dist/
+wasm/target/
+daemon/target/
+.DS_Store
+*.log
+
+# local runtime identity (secret key + token) must never be committed
+.doggypile/

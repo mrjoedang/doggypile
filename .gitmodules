@@ -1,0 +1,3 @@
+[submodule ".references/litter"]
+	path = .references/litter
+	url = https://github.com/dnakov/litter.git

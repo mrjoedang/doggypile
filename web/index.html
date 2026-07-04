@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#121113" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="doggypile" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <title>doggypile</title>
+  <link rel="stylesheet" href="./styles.css?v=20260712-ui" />
+</head>
+<body>
+  <header id="header" class="topbar">
+    <div id="header-left" class="topbar-left">
+      <span class="brand"><span class="brand-name">doggypile</span></span>
+    </div>
+    <button id="status" class="status" data-state="connecting" aria-live="polite">connecting</button>
+  </header>
+  <main id="main">
+    <div class="state"><div class="spinner" aria-label="Loading"></div></div>
+  </main>
+  <button id="jump" class="jump" aria-label="Scroll to latest" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="18"/><polyline points="6 12 12 18 18 12"/></svg>
+  </button>
+  <footer id="composer" hidden>
+    <textarea id="input" rows="1" placeholder="Message the agent…" aria-label="Message the agent" autocapitalize="sentences" enterkeyhint="send"></textarea>
+    <button id="stop" class="icon-btn stop" aria-label="Stop the agent" title="Stop" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+    </button>
+    <button id="send" class="icon-btn send" aria-label="Send message" title="Send" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="6"/><polyline points="6 12 12 6 18 12"/></svg>
+    </button>
+  </footer>
+  <div id="toast" class="toast" role="alert" hidden></div>
+  <script type="module" src="./app.js?v=20260712-ui"></script>
+</body>
+</html>

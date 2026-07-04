@@ -1,0 +1,21 @@
+{
+  "name": "doggypile",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Single-binary daemon and browser PWA for chatting with Codex from your phone over iroh.",
+  "scripts": {
+    "dev": "bun dev.mjs",
+    "stop": "cd daemon && cargo run -q -p doggypile --bin doggypile -- stop",
+    "daemon": "cd daemon && cargo run -p doggypile --bin doggypile -- serve",
+    "pair": "cd daemon && cargo run -q -p doggypile --bin doggypile -- pair",
+    "web": "cd daemon && cargo run -q -p doggypile --bin doggypile -- web",
+    "build:daemon": "cd daemon && cargo build --release -p doggypile --bin doggypile",
+    "build:wasm": "wasm/build.sh",
+    "release:dry-run": "node scripts/publish.mjs --dry-run"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@commitlint/cli": "20.5.0",
+    "@commitlint/config-conventional": "20.5.0"
+  }
+}
