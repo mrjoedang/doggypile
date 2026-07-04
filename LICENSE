@@ -1,0 +1,7 @@
+doggypile is distributed under the GNU General Public License version 3 only.
+
+The full GPL-3.0 license text is included at daemon/LICENSE.
+
+The daemon is a fork of alleycat/kittylitter-lineage code licensed under
+GPL-3.0-only. The web client and wasm transport are not separately licensed for
+reuse outside this repository at this time.

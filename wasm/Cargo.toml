@@ -1,0 +1,33 @@
+[package]
+name = "doggypile-transport"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1"
+async-channel = "2.3"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+iroh = { version = "1.0.0", default-features = false, features = ["tls-ring"] }
+js-sys = "0.3"
+n0-future = "0.3"
+wasm-bindgen = "=0.2.122"
+wasm-bindgen-futures = "0.4"
+wasm-streams = "0.5"
+
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+lto = true
+opt-level = "z"
+panic = "abort"
+
+# The bundled wasm-opt is older than LLVM's default wasm feature set
+# (bulk-memory etc.), so skip it. opt-level=z + lto + strip already shrink the
+# artifact; browsers support these features natively.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

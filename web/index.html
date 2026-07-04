@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="doggypile" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <title>doggypile</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header id="header">
+    <span class="brand">🐕 doggypile</span>
+    <span id="status" data-state="connecting">connecting</span>
+  </header>
+  <main id="main"><div class="empty">starting…</div></main>
+  <footer id="composer" style="display:none">
+    <textarea id="input" rows="1" placeholder="message the agent…" autocapitalize="sentences"></textarea>
+    <button id="stop" title="interrupt">■</button>
+    <button id="send" title="send">↑</button>
+  </footer>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
