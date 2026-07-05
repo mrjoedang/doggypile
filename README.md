@@ -4,37 +4,30 @@ Chat with a Codex agent from your phone using a browser PWA. doggypile runs a lo
 
 ## Install
 
-Requirements:
-
-- Bun
-- Rust/Cargo
-- `codex` CLI on your PATH
-
-Clone and install dependencies:
+Requires the `codex` CLI to be installed and authenticated.
 
 ```sh
-git clone https://github.com/mrjoedang/doggypile.git
-cd doggypile
-bun install
+curl -fsSL https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh | sh
 ```
 
 ## Usage
 
-Start everything for local testing:
+Start doggypile and print a pairing QR:
 
 ```sh
-bun run dev
+doggypile
 ```
 
-Scan the printed QR code with your phone, or open the printed URL. The daemon keeps running in the background; Ctrl-C only stops the local web server.
+Scan the QR code with your phone, or open the printed URL.
 
 Useful commands:
 
 ```sh
-bun run pair      # print a fresh pairing URL + QR
-bun run daemon    # run the daemon
-bun run web       # serve the PWA locally on :8123
-bun run stop      # stop the daemon
+doggypile pair      # print a fresh pairing URL + QR
+doggypile serve     # run the daemon
+doggypile web       # serve the embedded PWA locally on :8123
+doggypile stop      # stop the daemon
+doggypile status    # show daemon status
 ```
 
 Pairing URLs are one-time use. Anyone who pairs gets code execution through the local Codex agent, so only share pairing links with devices you trust.

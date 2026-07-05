@@ -1,0 +1,37 @@
+name: Conventional Commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  pr-title:
+    name: Lint PR title
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Lint PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          cat <<'MSG'
+          PR title must follow Conventional Commits.
+
+          Examples:
+            feat(doggypile): add release installer workflow
+            fix(doggypile): refresh pairing token on duplicate opens
+            docs(doggypile): update install instructions
+            ci(doggypile): add release workflow
+            test(doggypile): add cli smoke coverage
+          MSG
+
+          printf '%s\n' "$PR_TITLE" | npx --yes -p @commitlint/cli@20.5.0 -p @commitlint/config-conventional@20.5.0 commitlint --config commitlint.config.cjs

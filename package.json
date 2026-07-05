@@ -10,6 +10,12 @@
     "pair": "cd daemon && cargo run -q -p doggypile --bin doggypile -- pair",
     "web": "cd daemon && cargo run -q -p doggypile --bin doggypile -- web",
     "build:daemon": "cd daemon && cargo build --release -p doggypile --bin doggypile",
-    "build:wasm": "wasm/build.sh"
+    "build:wasm": "wasm/build.sh",
+    "release:dry-run": "node scripts/publish.mjs --dry-run"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@commitlint/cli": "20.5.0",
+    "@commitlint/config-conventional": "20.5.0"
   }
 }

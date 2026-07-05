@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: doggypile-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: darwin-arm64
+          - os: ubuntu-24.04
+            label: linux-x64
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Validate release tag
+        run: |
+          if [ -z "${RELEASE_TAG}" ] || ! [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${RELEASE_TAG}"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release -p doggypile --bin doggypile
+        working-directory: daemon
+
+      - name: Strip binary
+        if: runner.os == 'Linux'
+        run: strip daemon/target/release/doggypile
+
+      - name: Ad-hoc codesign macOS binary
+        if: runner.os == 'macOS'
+        run: codesign --force --sign - daemon/target/release/doggypile
+
+      - name: Package asset
+        run: |
+          mkdir -p dist/release
+          tmp="$(mktemp -d)"
+          cp daemon/target/release/doggypile "$tmp/doggypile"
+          chmod 755 "$tmp/doggypile"
+          tar -C "$tmp" -czf "dist/release/doggypile-${RELEASE_TAG}-${{ matrix.label }}.tar.gz" doggypile
+          shasum -a 256 "dist/release/doggypile-${RELEASE_TAG}-${{ matrix.label }}.tar.gz" > "dist/release/doggypile-${RELEASE_TAG}-${{ matrix.label }}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: doggypile-${{ matrix.label }}
+          path: dist/release/*
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          pattern: doggypile-*
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${RELEASE_TAG}" --repo "${REPO}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release-assets/* --repo "${REPO}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" release-assets/* --repo "${REPO}" --title "doggypile ${RELEASE_TAG}" --notes "doggypile ${RELEASE_TAG}"
+          fi
