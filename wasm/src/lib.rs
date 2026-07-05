@@ -10,6 +10,7 @@
 
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, endpoint::presets};
 use n0_future::{StreamExt, task};
+use std::net::SocketAddr;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -25,6 +26,7 @@ pub struct Channel {
     // The endpoint owns the I/O driver; it must outlive the connection or all
     // stream traffic silently stops after the handshake.
     _endpoint: Endpoint,
+    conn: iroh::endpoint::Connection,
     send_tx: async_channel::Sender<Vec<u8>>,
     readable: Option<JsReadableStream>,
 }
@@ -34,10 +36,13 @@ impl Channel {
     /// Dial `node_id` (hex EndpointId) with the given ALPN and open a bi stream.
     /// `relay` is the optional relay URL from the pairing payload; passing it
     /// lets us reach a peer on a non-default relay (e.g. iroh-canary).
+    /// `direct_addrs` are optional IP socket addresses from the host endpoint;
+    /// iroh can use them for LAN/direct paths while retaining relay fallback.
     pub async fn connect(
         node_id: String,
         alpn: Vec<u8>,
         relay: Option<String>,
+        direct_addrs: Vec<String>,
     ) -> Result<Channel, JsError> {
         let endpoint_id: EndpointId = node_id.parse().map_err(to_js)?;
         let endpoint = Endpoint::builder(presets::N0).bind().await.map_err(to_js)?;
@@ -45,7 +50,11 @@ impl Channel {
         if let Some(relay) = relay {
             addr = addr.with_relay_url(RelayUrl::from_str(&relay).map_err(to_js)?);
         }
+        for direct_addr in direct_addrs {
+            addr = addr.with_ip_addr(SocketAddr::from_str(&direct_addr).map_err(to_js)?);
+        }
         let conn = endpoint.connect(addr, &alpn).await.map_err(to_js)?;
+        let conn_for_channel = conn.clone();
         let (mut send, mut recv) = conn.open_bi().await.map_err(to_js)?;
 
         // Writer task: drains the send channel; keeps the connection alive.
@@ -83,6 +92,7 @@ impl Channel {
 
         Ok(Channel {
             _endpoint: endpoint,
+            conn: conn_for_channel,
             send_tx,
             readable: Some(readable),
         })
@@ -100,10 +110,52 @@ impl Channel {
         self.send_tx.send(data).await.map_err(to_js)
     }
 
+    /// Returns a small JSON summary of currently open iroh paths.
+    pub fn path_summary(&self) -> String {
+        let paths = self.conn.paths();
+        let mut out = format!("{{\"paths\":{}", paths.len());
+        let mut selected_kind = "unknown";
+        let mut selected_addr = String::new();
+        let mut selected_rtt_ms = None;
+        for path in paths.iter() {
+            if path.is_selected() {
+                selected_kind = if path.is_ip() {
+                    "direct"
+                } else if path.is_relay() {
+                    "relay"
+                } else {
+                    "custom"
+                };
+                selected_addr = path.remote_addr().to_string();
+                selected_rtt_ms = Some(path.rtt().as_millis());
+                break;
+            }
+        }
+        out.push_str(&format!(",\"selected\":\"{selected_kind}\""));
+        if !selected_addr.is_empty() {
+            out.push_str(",\"addr\":\"");
+            out.push_str(&json_escape(&selected_addr));
+            out.push('"');
+        }
+        if let Some(rtt_ms) = selected_rtt_ms {
+            out.push_str(&format!(",\"rtt_ms\":{rtt_ms}"));
+        }
+        out.push('}');
+        out
+    }
+
     /// Close the send side and tear down the connection.
     pub fn close(&self) {
         self.send_tx.close();
     }
+}
+
+fn json_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 fn to_js(err: impl std::fmt::Display) -> JsError {

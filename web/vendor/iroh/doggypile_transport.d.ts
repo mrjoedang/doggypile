@@ -20,8 +20,14 @@ export class Channel {
      * Dial `node_id` (hex EndpointId) with the given ALPN and open a bi stream.
      * `relay` is the optional relay URL from the pairing payload; passing it
      * lets us reach a peer on a non-default relay (e.g. iroh-canary).
+     * `direct_addrs` are optional IP socket addresses from the host endpoint;
+     * iroh can use them for LAN/direct paths while retaining relay fallback.
      */
-    static connect(node_id: string, alpn: Uint8Array, relay?: string | null): Promise<Channel>;
+    static connect(node_id: string, alpn: Uint8Array, relay: string | null | undefined, direct_addrs: string[]): Promise<Channel>;
+    /**
+     * Returns a small JSON summary of currently open iroh paths.
+     */
+    path_summary(): string;
     /**
      * Take the receive-side ReadableStream (call once).
      */
@@ -68,7 +74,8 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_channel_free: (a: number, b: number) => void;
     readonly channel_close: (a: number) => void;
-    readonly channel_connect: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly channel_connect: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+    readonly channel_path_summary: (a: number, b: number) => void;
     readonly channel_readable: (a: number, b: number) => void;
     readonly channel_send: (a: number, b: number, c: number) => number;
     readonly start: () => void;
@@ -86,15 +93,15 @@ export interface InitOutput {
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: number) => number;
     readonly ring_core_0_17_14__bn_mul_mont: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-    readonly __wasm_bindgen_func_elem_13123: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_13144: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_4585: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_1328: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_6218: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_4367: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_5497: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_5527: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_12995: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_13276: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_13300: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_4658: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1320: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_6332: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_4434: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_5603: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_5628: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_13148: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

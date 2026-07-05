@@ -48,9 +48,16 @@ pub async fn run(args: PairArgs) -> anyhow::Result<()> {
             .or_else(|| std::env::var("DOGGYPILE_WEB").ok())
             .unwrap_or_else(|| "https://mrjoedang.github.io/doggypile/".to_string());
         let base = base.trim_end_matches('#');
-        let mut link = format!("{base}#node={}&token={}", payload.node_id, payload.token);
+        let mut link = format!(
+            "{base}#node={}&token={}",
+            encode_fragment_value(&payload.node_id),
+            encode_fragment_value(&payload.token)
+        );
         if let Some(relay) = payload.relay.as_deref() {
-            link.push_str(&format!("&relay={relay}"));
+            link.push_str(&format!("&relay={}", encode_fragment_value(relay)));
+        }
+        for addr in &payload.direct_addrs {
+            link.push_str(&format!("&addr={}", encode_fragment_value(addr)));
         }
         link
     };
@@ -60,6 +67,19 @@ pub async fn run(args: PairArgs) -> anyhow::Result<()> {
         print_qr(&out)?;
     }
     Ok(())
+}
+
+fn encode_fragment_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 fn print_qr(data: &str) -> anyhow::Result<()> {

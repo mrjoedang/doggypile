@@ -4,7 +4,7 @@
 // over the raw byte channel and surface each text frame as a JSON-RPC line.
 //
 // Interface is unchanged from the old transport: connect(...) -> { sendLine, close }.
-import init, { Channel } from './vendor/iroh/doggypile_transport.js?v=20260705-connection';
+import init, { Channel } from './vendor/iroh/doggypile_transport.js?v=20260705-paths';
 
 const ALPN = new TextEncoder().encode('alleycat/1');
 const enc = new TextEncoder();
@@ -13,10 +13,25 @@ const dec = new TextDecoder();
 let ready;
 const ensureInit = () => (ready ??= init());
 
-export async function connect({ nodeId, token, relay, agent = 'codex', onToken, onLine, onClose }) {
+export async function connect({ nodeId, token, relay, directAddrs = [], agent = 'codex', onToken, onMetrics, onLine, onClose }) {
+  const timings = {};
+  const mark = (name, start) => { timings[name] = performance.now() - start; };
+  const startedAt = performance.now();
+  let t = performance.now();
   await ensureInit();
-  const ch = await Channel.connect(nodeId, ALPN, relay ?? undefined);
+  mark('wasm', t);
+  t = performance.now();
+  const ch = await Channel.connect(nodeId, ALPN, relay ?? undefined, directAddrs);
+  mark('iroh', t);
+  const reportMetrics = () => {
+    let path = null;
+    try { path = JSON.parse(ch.path_summary()); } catch {}
+    onMetrics?.({ total_ms: performance.now() - startedAt, timings: { ...timings }, path });
+  };
+  reportMetrics();
+  const pathTimer = setInterval(reportMetrics, 1500);
 
+  try {
   // --- buffered byte reader over the iroh recv stream ---
   const reader = ch.readable().getReader();
   let buf = new Uint8Array(0);
@@ -37,9 +52,11 @@ export async function connect({ nodeId, token, relay, agent = 'codex', onToken, 
   reqFrame.set(reqBody, 4);
   await ch.send(reqFrame);
 
+  t = performance.now();
   await need(4);
   const respLen = new DataView(take(4).buffer).getUint32(0, false);
   await need(respLen);
+  mark('auth', t);
   const resp = JSON.parse(dec.decode(take(respLen)));
   if (!resp.ok) throw new Error(resp.error || 'alleycat handshake rejected');
   if (resp.auth_token) onToken?.(resp.auth_token);
@@ -51,6 +68,7 @@ export async function connect({ nodeId, token, relay, agent = 'codex', onToken, 
     `GET /${agent} HTTP/1.1\r\nHost: alleycat\r\nUpgrade: websocket\r\n` +
     `Connection: Upgrade\r\nSec-WebSocket-Key: ${secKey}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
   ));
+  t = performance.now();
   const findHeaderEnd = () => {
     for (let i = 3; i < buf.length; i++)
       if (buf[i - 3] === 13 && buf[i - 2] === 10 && buf[i - 1] === 13 && buf[i] === 10) return i + 1;
@@ -59,6 +77,8 @@ export async function connect({ nodeId, token, relay, agent = 'codex', onToken, 
   let he; while ((he = findHeaderEnd()) < 0) await pull();
   const statusLine = dec.decode(take(he)).split('\r\n')[0];
   if (!/\b101\b/.test(statusLine)) throw new Error('ws upgrade failed: ' + statusLine);
+  mark('websocket', t);
+  reportMetrics();
 
   // --- ws frame codec ---
   const sendFrame = async (opcode, payload) => {
@@ -103,8 +123,13 @@ export async function connect({ nodeId, token, relay, agent = 'codex', onToken, 
         if (fin) { const line = dec.decode(assembled); assembled = new Uint8Array(0); if (line) onLine(line); }
       }
     } catch { /* stream ended */ }
-    finally { onClose?.(); }
+    finally { clearInterval(pathTimer); onClose?.(); }
   })();
 
-  return { sendLine, close: () => { closed = true; ch.close(); } };
+  return { sendLine, close: () => { closed = true; clearInterval(pathTimer); ch.close(); } };
+  } catch (e) {
+    clearInterval(pathTimer);
+    ch.close();
+    throw e;
+  }
 }

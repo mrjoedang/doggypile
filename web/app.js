@@ -1,6 +1,6 @@
-import { connect } from './transport.js?v=20260705-connection';
-import { makeRpc } from './rpc.js?v=20260705-connection';
-import { createProjection } from './projection.js?v=20260705-connection';
+import { connect } from './transport.js?v=20260705-paths';
+import { makeRpc } from './rpc.js?v=20260705-paths';
+import { createProjection } from './projection.js?v=20260705-paths';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -20,6 +20,7 @@ const state = {
   status: 'connecting',
   connectAttempt: 0,
   reconnectTimer: null,
+  lastMetrics: null,
 };
 
 function readCreds() {
@@ -27,9 +28,10 @@ function readCreds() {
   const node = frag.get('node');
   const token = frag.get('token');
   const relay = frag.get('relay'); // URLSearchParams decodes it
+  const addrs = frag.getAll('addr');
   if (node && token) {
     // Persist so a re-open (from home screen) reconnects without the QR.
-    const creds = { node, token, relay };
+    const creds = { node, token, relay, addrs };
     localStorage.setItem('doggypile:creds', JSON.stringify(creds));
     history.replaceState(null, '', location.pathname + location.search);
     return creds;
@@ -48,8 +50,22 @@ function setStatus(s, detail) {
   state.status = s;
   const pill = $('#status');
   pill.textContent = s;
-  pill.dataset.state = s;
+  pill.dataset.state = s.split(' ')[0];
   pill.title = detail || '';
+}
+
+function onMetrics(metrics) {
+  state.lastMetrics = metrics;
+  const phases = metrics.timings
+    ? Object.entries(metrics.timings).map(([k, v]) => `${k}=${Math.round(v)}ms`).join(' ')
+    : '';
+  const path = metrics.path?.selected && metrics.path.selected !== 'unknown'
+    ? `${metrics.path.selected}${metrics.path.rtt_ms != null ? ` ${metrics.path.rtt_ms}ms` : ''}`
+    : '';
+  const detail = [path, phases].filter(Boolean).join(' | ');
+  if (state.status.startsWith('connected') && path) setStatus(`connected ${metrics.path.selected}`, detail);
+  else if (detail) $('#status').title = detail;
+  if (detail) console.info('[doggypile] connection', metrics);
 }
 
 async function boot() {
@@ -74,7 +90,9 @@ async function connectAndSync() {
       nodeId: state.creds.node,
       token: state.creds.token,
       relay: state.creds.relay,
+      directAddrs: state.creds.addrs || [],
       onToken: saveToken,
+      onMetrics,
       onLine: (line) => state.rpc?.handleLine(line),
       onClose: () => {
         if (attempt !== state.connectAttempt) return;
@@ -99,7 +117,8 @@ async function connectAndSync() {
 
   state.rpc = makeRpc(state.transport, { onNotify: onNotify });
   await state.rpc.initialize();
-  setStatus('connected');
+  const path = state.lastMetrics?.path?.selected;
+  setStatus(path && path !== 'unknown' ? `connected ${path}` : 'connected');
 
   if (state.threadId) await openThread(state.threadId); // resume where we were
   else await showSessions();

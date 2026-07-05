@@ -306,6 +306,7 @@ pub fn pair_payload(
         token,
         host_name: local_host_name(),
         relay: endpoint_home_relay(endpoint).or_else(|| config.relay.clone()),
+        direct_addrs: endpoint_direct_addrs(endpoint),
     }
 }
 
@@ -318,6 +319,17 @@ pub fn endpoint_home_relay(endpoint: Option<&Endpoint>) -> Option<String> {
         .relay_urls()
         .next()
         .map(|url| url.to_string())
+}
+
+pub fn endpoint_direct_addrs(endpoint: Option<&Endpoint>) -> Vec<String> {
+    let Some(endpoint) = endpoint else {
+        return Vec::new();
+    };
+    endpoint
+        .addr()
+        .ip_addrs()
+        .map(|addr| addr.to_string())
+        .collect()
 }
 
 fn local_host_name() -> Option<String> {
@@ -361,6 +373,7 @@ mod tests {
         assert_eq!(payload.node_id, secret_key.public().to_string());
         assert_eq!(payload.token, "token-1");
         assert_eq!(payload.relay.as_deref(), Some("https://relay.example"));
+        assert!(payload.direct_addrs.is_empty());
         assert!(
             payload
                 .host_name
