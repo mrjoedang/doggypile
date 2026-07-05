@@ -1,6 +1,6 @@
 {
   "name": "doggypile",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Single-binary daemon and browser PWA for chatting with Codex from your phone over iroh.",
   "scripts": {
