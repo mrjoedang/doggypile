@@ -190,6 +190,8 @@ pub struct Response {
     pub session: Option<SessionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
 }
 
 impl Response {
@@ -200,26 +202,29 @@ impl Response {
             agents: None,
             session: None,
             error: None,
+            auth_token: None,
         }
     }
 
-    pub fn ok_with_session(session: SessionInfo) -> Self {
+    pub fn ok_with_session(session: SessionInfo, auth_token: Option<String>) -> Self {
         Self {
             v: PROTOCOL_VERSION,
             ok: true,
             agents: None,
             session: Some(session),
             error: None,
+            auth_token,
         }
     }
 
-    pub fn agents(agents: Vec<AgentInfo>) -> Self {
+    pub fn agents(agents: Vec<AgentInfo>, auth_token: Option<String>) -> Self {
         Self {
             v: PROTOCOL_VERSION,
             ok: true,
             agents: Some(agents),
             session: None,
             error: None,
+            auth_token,
         }
     }
 
@@ -230,6 +235,7 @@ impl Response {
             agents: None,
             session: None,
             error: Some(error.into()),
+            auth_token: None,
         }
     }
 }

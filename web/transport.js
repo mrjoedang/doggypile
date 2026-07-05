@@ -13,7 +13,7 @@ const dec = new TextDecoder();
 let ready;
 const ensureInit = () => (ready ??= init());
 
-export async function connect({ nodeId, token, relay, agent = 'codex', onLine, onClose }) {
+export async function connect({ nodeId, token, relay, agent = 'codex', onToken, onLine, onClose }) {
   await ensureInit();
   const ch = await Channel.connect(nodeId, ALPN, relay ?? undefined);
 
@@ -42,6 +42,7 @@ export async function connect({ nodeId, token, relay, agent = 'codex', onLine, o
   await need(respLen);
   const resp = JSON.parse(dec.decode(take(respLen)));
   if (!resp.ok) throw new Error(resp.error || 'alleycat handshake rejected');
+  if (resp.auth_token) onToken?.(resp.auth_token);
 
   // --- WebSocket client handshake (RFC 6455) over the stream ---
   const keyBytes = crypto.getRandomValues(new Uint8Array(16));

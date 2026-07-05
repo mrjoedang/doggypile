@@ -21,7 +21,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use crate::agents::AgentManager;
 use crate::config::HostConfig;
 use crate::framing::{read_json_frame, write_json_frame};
-use crate::host;
+use crate::host::{self, PairingAuth};
 use crate::ipc::{ControlListener, ControlStream};
 use crate::paths;
 use crate::state;
@@ -71,14 +71,15 @@ pub async fn run() -> anyhow::Result<()> {
 
     let started_at = Instant::now();
     let shutdown = Arc::new(Notify::new());
+    let pairing_auth = Arc::new(PairingAuth::default());
 
     let serve_task = {
         let endpoint = endpoint.clone();
         let agents = agents.clone();
-        let config = Arc::clone(&config);
+        let pairing_auth = Arc::clone(&pairing_auth);
         let shutdown = Arc::clone(&shutdown);
         tokio::spawn(async move {
-            if let Err(error) = host::accept_loop(endpoint, agents, config, shutdown).await {
+            if let Err(error) = host::accept_loop(endpoint, agents, pairing_auth, shutdown).await {
                 error!("iroh accept loop ended: {error:#}");
             }
         })
@@ -94,6 +95,7 @@ pub async fn run() -> anyhow::Result<()> {
         agents,
         secret_key,
         endpoint: endpoint.clone(),
+        pairing_auth,
         node_id,
         started_at,
         shutdown: Arc::clone(&shutdown),
@@ -132,6 +134,7 @@ struct DaemonState {
     agents: AgentManager,
     secret_key: iroh::SecretKey,
     endpoint: iroh::Endpoint,
+    pairing_auth: Arc<PairingAuth>,
     node_id: String,
     started_at: Instant,
     shutdown: Arc<Notify>,
@@ -210,7 +213,8 @@ async fn handle_status(daemon: &DaemonState) -> Response {
 async fn handle_pair(daemon: &DaemonState) -> Response {
     wait_for_relay(&daemon.endpoint).await;
     let cfg = daemon.config.load();
-    let payload = host::pair_payload(&daemon.secret_key, &cfg, Some(&daemon.endpoint));
+    let token = daemon.pairing_auth.mint_pairing_token();
+    let payload = host::pair_payload(&daemon.secret_key, &cfg, Some(&daemon.endpoint), token);
     Response::ok_with(&payload).unwrap_or_else(|e| Response::err(e.to_string()))
 }
 
@@ -221,7 +225,9 @@ async fn handle_rotate(daemon: &DaemonState) -> Response {
         Err(error) => return Response::err(format!("rotate failed: {error:#}")),
     };
     let token_short = token_fingerprint(&new_cfg.token);
-    let payload = host::pair_payload(&daemon.secret_key, &new_cfg, Some(&daemon.endpoint));
+    daemon.pairing_auth.clear();
+    let token = daemon.pairing_auth.mint_pairing_token();
+    let payload = host::pair_payload(&daemon.secret_key, &new_cfg, Some(&daemon.endpoint), token);
     daemon.config.store(Arc::new(new_cfg));
     Response::ok_with(&RotateResult {
         token_short,

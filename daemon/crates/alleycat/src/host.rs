@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, anyhow};
-use arc_swap::ArcSwap;
 use iroh::endpoint::QuicTransportConfig;
 use iroh::endpoint::{IdleTimeout, presets};
 use iroh::{Endpoint, SecretKey};
@@ -10,10 +10,59 @@ use tokio::sync::Notify;
 use tracing::{info, warn};
 
 use crate::agents::AgentManager;
+use crate::config;
 use crate::config::HostConfig;
 use crate::framing::{read_json_frame, write_json_frame};
 use crate::protocol::{ALLEYCAT_ALPN, PROTOCOL_VERSION, Request, Response, Resume, SessionInfo};
 use crate::stream::IrohStream;
+
+#[derive(Debug, Default)]
+pub struct PairingAuth {
+    tokens: Mutex<PairingTokens>,
+}
+
+#[derive(Debug, Default)]
+struct PairingTokens {
+    pending: HashSet<String>,
+    paired: HashSet<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct AuthOutcome {
+    replacement_token: Option<String>,
+}
+
+impl PairingAuth {
+    pub fn mint_pairing_token(&self) -> String {
+        let token = config::random_token();
+        let mut tokens = self.tokens.lock().unwrap();
+        tokens.pending.insert(token.clone());
+        token
+    }
+
+    pub fn clear(&self) {
+        let mut tokens = self.tokens.lock().unwrap();
+        tokens.pending.clear();
+        tokens.paired.clear();
+    }
+
+    fn authorize(&self, token: &str) -> Result<AuthOutcome, String> {
+        let mut tokens = self.tokens.lock().unwrap();
+        if tokens.paired.contains(token) {
+            return Ok(AuthOutcome {
+                replacement_token: None,
+            });
+        }
+        if tokens.pending.remove(token) {
+            let replacement_token = config::random_token();
+            tokens.paired.insert(replacement_token.clone());
+            return Ok(AuthOutcome {
+                replacement_token: Some(replacement_token),
+            });
+        }
+        Err("invalid or already-used token".to_string())
+    }
+}
 
 /// Bind the iroh endpoint with the given identity and ALPN, returning it
 /// ready to be passed to [`accept_loop`]. Spawns a background "online" probe
@@ -65,7 +114,7 @@ pub async fn bind_endpoint(secret_key: SecretKey) -> anyhow::Result<Endpoint> {
 pub async fn accept_loop(
     endpoint: Endpoint,
     agents: AgentManager,
-    config: Arc<ArcSwap<HostConfig>>,
+    auth: Arc<PairingAuth>,
     shutdown: Arc<Notify>,
 ) -> anyhow::Result<()> {
     loop {
@@ -81,7 +130,7 @@ pub async fn accept_loop(
                     break;
                 };
                 let agents = agents.clone();
-                let config = Arc::clone(&config);
+                let auth = Arc::clone(&auth);
                 tokio::spawn(async move {
                     match connecting.await {
                         Ok(conn) => {
@@ -97,11 +146,11 @@ pub async fn accept_loop(
                             );
                             while let Ok((send, recv)) = conn.accept_bi().await {
                                 let agents = agents.clone();
-                                let config = Arc::clone(&config);
+                                let auth = Arc::clone(&auth);
                                 let node_id = node_id.clone();
                                 tokio::spawn(async move {
                                     if let Err(error) = handle_stream(
-                                        send, recv, agents, config, conn_id, node_id,
+                                        send, recv, agents, auth, conn_id, node_id,
                                     )
                                     .await
                                     {
@@ -124,7 +173,7 @@ async fn handle_stream(
     mut send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
     agents: AgentManager,
-    config: Arc<ArcSwap<HostConfig>>,
+    auth: Arc<PairingAuth>,
     conn: usize,
     node_id: String,
 ) -> anyhow::Result<()> {
@@ -134,18 +183,24 @@ async fn handle_stream(
         return Err(anyhow!(error));
     }
 
-    let token = config.load().token.clone();
-    if let Err(error) = validate_token(&request, &token) {
-        warn!(conn = conn, "rejecting stream: {error}");
-        write_json_frame(&mut send, &Response::error(&error)).await?;
-        return Err(anyhow!(error));
-    }
+    let auth_outcome = match auth.authorize(request.token()) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            warn!(conn = conn, "rejecting stream: {error}");
+            write_json_frame(&mut send, &Response::error(&error)).await?;
+            return Err(anyhow!(error));
+        }
+    };
 
     match request {
         Request::ListAgents { .. } => {
             info!(conn = conn, "list_agents");
             let list = agents.list_agents().await;
-            write_json_frame(&mut send, &Response::agents(list)).await?;
+            write_json_frame(
+                &mut send,
+                &Response::agents(list, auth_outcome.replacement_token),
+            )
+            .await?;
             Ok(())
         }
         Request::RestartAgent { agent, .. } => {
@@ -207,7 +262,11 @@ async fn handle_stream(
                 floor_seq = session_info.floor_seq,
                 "connect: dispatching to agent"
             );
-            write_json_frame(&mut send, &Response::ok_with_session(session_info.clone())).await?;
+            write_json_frame(
+                &mut send,
+                &Response::ok_with_session(session_info.clone(), auth_outcome.replacement_token),
+            )
+            .await?;
             // The registry already decided what cursor to actually replay from —
             // either the client's explicit resume hint, or the server's own
             // `last_attempted_seq` for a known session attaching without one.
@@ -239,11 +298,12 @@ pub fn pair_payload(
     secret_key: &iroh::SecretKey,
     config: &HostConfig,
     endpoint: Option<&Endpoint>,
+    token: String,
 ) -> crate::protocol::PairPayload {
     crate::protocol::PairPayload {
         v: PROTOCOL_VERSION,
         node_id: secret_key.public().to_string(),
-        token: config.token.clone(),
+        token,
         host_name: local_host_name(),
         relay: endpoint_home_relay(endpoint).or_else(|| config.relay.clone()),
     }
@@ -280,14 +340,6 @@ fn validate_version(request: &Request) -> Result<(), String> {
     }
 }
 
-fn validate_token(request: &Request, expected_token: &str) -> Result<(), String> {
-    if request.token() == expected_token {
-        Ok(())
-    } else {
-        Err("invalid token".to_string())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,7 +355,7 @@ mod tests {
             session: crate::config::SessionConfig::default(),
         };
 
-        let payload = pair_payload(&secret_key, &config, None);
+        let payload = pair_payload(&secret_key, &config, None, "token-1".to_string());
 
         assert_eq!(payload.v, PROTOCOL_VERSION);
         assert_eq!(payload.node_id, secret_key.public().to_string());
@@ -318,19 +370,6 @@ mod tests {
     }
 
     #[test]
-    fn first_frame_auth_accepts_matching_token() {
-        let request = Request::Connect {
-            v: PROTOCOL_VERSION,
-            token: "secret".to_string(),
-            agent: "codex".to_string(),
-            resume: None,
-        };
-
-        validate_version(&request).unwrap();
-        validate_token(&request, "secret").unwrap();
-    }
-
-    #[test]
     fn first_frame_auth_rejects_protocol_mismatch() {
         let request = Request::ListAgents {
             v: PROTOCOL_VERSION + 1,
@@ -342,16 +381,22 @@ mod tests {
     }
 
     #[test]
-    fn first_frame_auth_rejects_invalid_token() {
-        let request = Request::ListAgents {
-            v: PROTOCOL_VERSION,
-            token: "wrong".to_string(),
-        };
+    fn pairing_auth_consumes_pairing_token_once_and_returns_reconnect_token() {
+        let auth = PairingAuth::default();
+        let pairing = auth.mint_pairing_token();
 
-        validate_version(&request).unwrap();
+        let first = auth.authorize(&pairing).unwrap();
+        let reconnect = first.replacement_token.expect("replacement token");
+
         assert_eq!(
-            validate_token(&request, "secret").unwrap_err(),
-            "invalid token"
+            auth.authorize(&pairing).unwrap_err(),
+            "invalid or already-used token"
+        );
+        assert_eq!(
+            auth.authorize(&reconnect).unwrap(),
+            AuthOutcome {
+                replacement_token: None
+            }
         );
     }
 }

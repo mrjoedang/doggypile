@@ -36,6 +36,12 @@ function readCreds() {
   return saved ? JSON.parse(saved) : null;
 }
 
+function saveToken(token) {
+  if (!token || !state.creds) return;
+  state.creds = { ...state.creds, token };
+  localStorage.setItem('doggypile:creds', JSON.stringify(state.creds));
+}
+
 function setStatus(s) {
   state.status = s;
   const pill = $('#status');
@@ -60,6 +66,7 @@ async function connectAndSync() {
       nodeId: state.creds.node,
       token: state.creds.token,
       relay: state.creds.relay,
+      onToken: saveToken,
       onLine: (line) => state.rpc?.handleLine(line),
       onClose: () => {
         setStatus('reconnecting');

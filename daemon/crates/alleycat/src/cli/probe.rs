@@ -161,7 +161,7 @@ async fn load_local_pair_payload(
         return payload;
     }
 
-    host::pair_payload(server_secret, cfg, None)
+    host::pair_payload(server_secret, cfg, None, cfg.token.clone())
 }
 
 async fn probe_with_endpoint(

@@ -69,13 +69,16 @@ The daemon needs the `codex` CLI on PATH. Identity + token live in the daemon's
 config dir (`~/Library/Application Support/dev.Alleycat.alleycat` on macOS).
 
 Open the URL from `pair` or scan its QR and the PWA opens connected — sessions,
-streaming, send/steer, all over iroh.
+streaming, send/steer, all over iroh. Pairing URLs are one-time use: the first
+successful client connection consumes the printed token and receives its own
+reconnect token for future reloads.
 
 ## ⚡ yolo mode
 
 The PWA drives codex without approval prompts (approving from a phone mid-turn
-isn't the experience). Anyone with the pairing URL has code execution on the
-host. Use it in trusted environments; `rotate` the token if a URL leaks.
+isn't the experience). Anyone who uses a fresh pairing URL first gets code
+execution on the host. Use it in trusted environments; `rotate` the token if a
+URL leaks before you pair.
 
 ## Build
 
