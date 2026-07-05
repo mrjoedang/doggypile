@@ -15,12 +15,15 @@ const state = {
   transport: null,
   rpc: null,
   threadId: null,
+  threadTitle: '',
   projection: null,
   turnActive: false,
   status: 'connecting',
   connectAttempt: 0,
   reconnectTimer: null,
   lastMetrics: null,
+  everConnected: false,
+  creatingThread: false,
 };
 
 function readCreds() {
@@ -46,11 +49,11 @@ function saveToken(token) {
   localStorage.setItem('doggypile:creds', JSON.stringify(state.creds));
 }
 
-function setStatus(s, detail) {
-  state.status = s;
+function setStatus(key, label, detail) {
+  state.status = key;
   const pill = $('#status');
-  pill.textContent = s;
-  pill.dataset.state = s.split(' ')[0];
+  pill.textContent = label || key;
+  pill.dataset.state = key.split(' ')[0];
   pill.title = detail || '';
 }
 
@@ -63,16 +66,72 @@ function onMetrics(metrics) {
     ? `${metrics.path.selected}${metrics.path.rtt_ms != null ? ` ${metrics.path.rtt_ms}ms` : ''}`
     : '';
   const detail = [path, phases].filter(Boolean).join(' | ');
-  if (state.status.startsWith('connected') && path) setStatus(`connected ${metrics.path.selected}`, detail);
+  if (state.status.startsWith('connected') && path) setStatus(`connected ${metrics.path.selected}`, null, detail);
   else if (detail) $('#status').title = detail;
   if (detail) console.info('[doggypile] connection', metrics);
+}
+
+// --- header / composer chrome ---
+function setHeader(...nodes) {
+  $('#header-left').replaceChildren(...nodes);
+}
+function brandEl() {
+  return el('span', 'brand', 'doggypile');
+}
+function backBtn() {
+  const b = el('button', 'back-btn', '‹ Sessions');
+  b.setAttribute('aria-label', 'Back to sessions');
+  b.onclick = showSessions;
+  return b;
+}
+function showComposer(show) {
+  $('#composer').hidden = !show;
+  updateComposer();
+}
+function updateComposer() {
+  $('#stop').hidden = !state.turnActive;
+  $('#send').disabled = !$('#input').value.trim() || !state.threadId;
+}
+
+// --- centered state blocks (pairing / loading / error / empty) ---
+function stateBox({ icon, spinner, title, body, action }) {
+  const box = el('div', 'state');
+  if (spinner) box.append(el('div', 'spinner'));
+  if (icon) box.append(el('div', 'state-icon', icon));
+  if (title) box.append(el('div', 'state-title', title));
+  if (body) {
+    const p = el('p', 'state-body');
+    typeof body === 'string' ? (p.textContent = body) : p.append(...body);
+    box.append(p);
+  }
+  if (action) box.append(action);
+  return box;
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
 }
 
 async function boot() {
   state.creds = readCreds();
   if (!state.creds) {
-    setStatus('no pairing');
-    $('#main').replaceChildren(el('div', 'empty', 'Open the QR link from `doggypile connect` to pair.'));
+    setStatus('unpaired', 'not paired');
+    setHeader(brandEl());
+    showComposer(false);
+    $('#main').replaceChildren(stateBox({
+      icon: null,
+      title: 'Pair this device',
+      body: [
+        'Run ',
+        el('code', null, 'doggypile pair'),
+        ' on your computer, then scan the QR code with this phone to connect.',
+      ],
+    }));
     return;
   }
   await connectAndSync();
@@ -84,7 +143,12 @@ async function connectAndSync() {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
   }
-  setStatus('connecting');
+  setStatus(state.everConnected ? 'reconnecting' : 'connecting');
+  if (!state.everConnected) {
+    setHeader(brandEl());
+    showComposer(false);
+    $('#main').replaceChildren(stateBox({ spinner: true, body: 'Connecting to your daemon…' }));
+  }
   try {
     state.transport = await connect({
       nodeId: state.creds.node,
@@ -100,83 +164,180 @@ async function connectAndSync() {
         state.reconnectTimer = setTimeout(connectAndSync, 1000);
       },
     });
+    state.rpc = makeRpc(state.transport, { onNotify });
+    await state.rpc.initialize();
   } catch (e) {
     if (attempt !== state.connectAttempt) return;
     const detail = e instanceof Error ? e.message : String(e);
     if (/already-used|invalid/i.test(detail)) {
       localStorage.removeItem('doggypile:creds');
       state.creds = null;
-      setStatus('pairing expired', detail);
-      $('#main').replaceChildren(el('div', 'empty', 'Pairing link expired. Run `npm run pair` again.'));
+      setStatus('pairing expired', 'pairing expired', detail);
+      showComposer(false);
+      $('#main').replaceChildren(stateBox({
+        icon: '⚠️',
+        title: 'Pairing link expired',
+        body: 'Run doggypile pair again to reconnect this device.',
+      }));
       return;
     }
-    setStatus('offline', detail);
+    setStatus('offline', null, detail);
+    // Before the first successful connect there's nothing else to show; after
+    // that, keep the current view readable and retry quietly via the pill.
+    if (!state.everConnected) {
+      const retry = el('button', 'btn', 'Retry now');
+      retry.onclick = connectAndSync;
+      $('#main').replaceChildren(stateBox({
+        icon: '⚠️',
+        title: 'Can’t reach the daemon',
+        body: `${detail}. Retrying automatically…`,
+        action: retry,
+      }));
+    }
     state.reconnectTimer = setTimeout(connectAndSync, 2000);
     return;
   }
-
-  state.rpc = makeRpc(state.transport, { onNotify: onNotify });
-  await state.rpc.initialize();
+  state.everConnected = true;
   const path = state.lastMetrics?.path?.selected;
   setStatus(path && path !== 'unknown' ? `connected ${path}` : 'connected');
 
-  if (state.threadId) await openThread(state.threadId); // resume where we were
+  if (state.threadId) await openThread(state.threadId, state.threadTitle); // resume where we were
   else await showSessions();
+}
+
+// --- sessions list ---
+function sectionHead() {
+  const row = el('div', 'section-head');
+  row.append(el('span', 'section-title', 'Sessions'));
+  const add = el('button', 'btn', '+ New');
+  add.setAttribute('aria-label', 'New session');
+  add.onclick = newThread;
+  row.append(add);
+  return row;
+}
+
+function skeletonList(n = 4) {
+  const wrap = el('div');
+  for (let i = 0; i < n; i++) {
+    const row = el('div', 'skeleton-row');
+    row.append(el('div', 'skeleton-bar long'), el('div', 'skeleton-bar short'));
+    wrap.append(row);
+  }
+  return wrap;
 }
 
 async function showSessions() {
   state.threadId = null;
-  const res = await state.rpc.request('thread/list', {});
+  state.threadTitle = '';
+  setHeader(brandEl());
+  showComposer(false);
+  $('#main').replaceChildren(sectionHead(), skeletonList());
+
+  let res;
+  try {
+    res = await state.rpc.request('thread/list', {});
+  } catch (e) {
+    const retry = el('button', 'btn', 'Try again');
+    retry.onclick = showSessions;
+    $('#main').replaceChildren(sectionHead(), stateBox({
+      icon: '⚠️',
+      title: 'Couldn’t load sessions',
+      body: e?.message || String(e),
+      action: retry,
+    }));
+    return;
+  }
+  if (state.threadId) return; // user already opened something while loading
+
   const threads = res?.data || [];
+  if (!threads.length) {
+    const start = el('button', 'btn btn-primary', 'Start a session');
+    start.onclick = newThread;
+    $('#main').replaceChildren(sectionHead(), stateBox({
+      icon: '💬',
+      title: 'No sessions yet',
+      body: 'Start a session to chat with the agent on your computer.',
+      action: start,
+    }));
+    return;
+  }
+
   const list = el('div', 'sessions');
-  list.append(headerRow('sessions', el('button', 'btn', '+ new')));
-  list.querySelector('button').onclick = newThread;
   for (const t of threads) {
+    const title = t.name || t.preview || '(untitled)';
     const row = el('button', 'session');
-    row.append(
-      el('div', 'session-title', t.name || t.preview || '(untitled)'),
-      el('div', 'session-meta', `${short(t.cwd)} · ${rel(t.updatedAt || t.recencyAt)}`),
-    );
-    row.onclick = () => openThread(t.id);
+    const main = el('div', 'session-main');
+    main.append(el('div', 'session-title', title));
+    const meta = el('div', 'session-meta');
+    const dir = short(t.cwd);
+    if (dir) meta.append(el('span', 'dir', dir), ' · ');
+    meta.append(rel(t.updatedAt || t.recencyAt) || '');
+    main.append(meta);
+    row.append(main, el('span', 'session-chevron', '›'));
+    row.onclick = () => openThread(t.id, title);
     list.append(row);
   }
-  if (!threads.length) list.append(el('div', 'empty', 'No sessions yet. Tap + new.'));
-  $('#main').replaceChildren(list);
-  $('#composer').style.display = 'none';
+  $('#main').replaceChildren(sectionHead(), list);
 }
 
 async function newThread() {
-  const res = await state.rpc.request('thread/start', {
-    approvalPolicy: 'never',
-    sandbox: 'danger-full-access',
-  });
-  const id = res?.thread?.id;
-  if (id) await openThread(id);
+  if (state.creatingThread) return;
+  state.creatingThread = true;
+  try {
+    const res = await state.rpc.request('thread/start', {
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+    });
+    const id = res?.thread?.id;
+    if (id) await openThread(id, 'New session');
+  } catch (e) {
+    toast(`Couldn’t start a session: ${e?.message || e}`);
+  } finally {
+    state.creatingThread = false;
+  }
 }
 
-async function openThread(id) {
+// --- chat ---
+async function openThread(id, title) {
   state.threadId = id;
+  if (title) state.threadTitle = title;
   state.projection = createProjection();
+  setHeader(backBtn(), el('div', 'topbar-title', state.threadTitle || 'Session'));
+  showComposer(true);
+  $('#main').replaceChildren(stateBox({ spinner: true, body: 'Loading conversation…' }));
   // Resume to subscribe to live turn events, then hydrate history. A freshly
   // started thread isn't materialized until its first message, so thread/read
   // can fail — that's fine, we just start with an empty log.
   await state.rpc.request('thread/resume', { threadId: id }).catch(() => {});
   const res = await state.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null);
+  if (state.threadId !== id) return; // navigated away while loading
   if (res?.thread) state.projection.seedFromThread(res.thread);
   renderChat();
 }
 
 function renderChat() {
-  const wrap = el('div', 'chat');
-  wrap.append(headerRow(null, backBtn()));
+  const main = $('#main');
+  // Only stick to the bottom if the user hasn't scrolled up to read history.
+  const hadLog = !!main.querySelector('.log');
+  const stick = !hadLog || main.scrollHeight - main.scrollTop - main.clientHeight < 80;
+
   const log = el('div', 'log');
-  for (const m of state.projection.toRenderList()) log.append(renderMessage(m));
-  if (state.turnActive) log.append(el('div', 'working', '● agent working…'));
-  wrap.append(log);
-  $('#main').replaceChildren(wrap);
-  $('#composer').style.display = 'flex';
-  log.scrollTop = log.scrollHeight;
-  requestAnimationFrame(() => (log.scrollTop = log.scrollHeight));
+  const msgs = state.projection.toRenderList();
+  if (!msgs.length && !state.turnActive) {
+    log.append(el('div', 'chat-hint', 'Send a message to get started.'));
+  }
+  for (const m of msgs) log.append(renderMessage(m));
+  if (state.turnActive) {
+    const w = el('div', 'working');
+    w.append(el('span', 'wdot'), el('span', 'wdot'), el('span', 'wdot'), el('span', null, 'working…'));
+    log.append(w);
+  }
+  main.replaceChildren(log);
+  updateComposer();
+  if (stick) {
+    main.scrollTop = main.scrollHeight;
+    requestAnimationFrame(() => (main.scrollTop = main.scrollHeight));
+  }
 }
 
 let renderPending = false;
@@ -185,7 +346,7 @@ function scheduleRenderChat() {
   renderPending = true;
   requestAnimationFrame(() => {
     renderPending = false;
-    renderChat();
+    if (state.threadId) renderChat();
   });
 }
 
@@ -193,10 +354,17 @@ function renderMessage(m) {
   if (m.role === 'user') return bubble('user', m.text);
   if (m.kind === 'reasoning') return bubble('reasoning', m.text);
   if (m.role === 'tool') {
-    const c = el('div', 'tool');
-    c.append(el('div', 'tool-head', m.kind === 'command' ? `$ ${m.command || ''}` : m.text));
-    if (m.kind === 'command' && m.text) c.append(el('pre', 'tool-out', m.text));
-    return c;
+    if (m.kind === 'command') {
+      const c = el('div', 'tool');
+      const head = el('div', 'tool-head');
+      const dot = el('span', 'dot');
+      dot.dataset.status = m.status || 'running';
+      head.append(dot, el('span', 'tool-cmd', `$ ${m.command || ''}`));
+      c.append(head);
+      if (m.text) c.append(el('pre', 'tool-out', m.text));
+      return c;
+    }
+    return el('div', 'chip', m.text);
   }
   return bubble('assistant', m.text);
 }
@@ -221,44 +389,51 @@ async function send() {
   const text = box.value.trim();
   if (!text || !state.threadId) return;
   box.value = '';
+  autoResize();
   state.turnActive = true;
-  await state.rpc.request('turn/start', {
-    threadId: state.threadId,
-    input: [{ type: 'text', text, text_elements: [] }],
-  }).catch(() => {});
+  scheduleRenderChat();
+  try {
+    await state.rpc.request('turn/start', {
+      threadId: state.threadId,
+      input: [{ type: 'text', text, text_elements: [] }],
+    });
+  } catch (e) {
+    state.turnActive = false;
+    if (!box.value) { box.value = text; autoResize(); } // let the user retry
+    toast(`Send failed: ${e?.message || e}`);
+    scheduleRenderChat();
+  }
 }
 
 function interrupt() {
   if (state.threadId) state.rpc.request('turn/interrupt', { threadId: state.threadId }).catch(() => {});
 }
 
-// --- small UI helpers ---
-function headerRow(title, action) {
-  const row = el('div', 'row');
-  if (title) row.append(el('div', 'row-title', title));
-  if (action) row.append(action);
-  return row;
-}
-function backBtn() {
-  const b = el('button', 'btn', '‹ sessions');
-  b.onclick = showSessions;
-  return b;
+// --- small helpers ---
+function autoResize() {
+  const box = $('#input');
+  box.style.height = 'auto';
+  box.style.height = Math.min(box.scrollHeight, 144) + 'px';
+  updateComposer();
 }
 function short(p) { return p ? p.split('/').slice(-1)[0] : ''; }
 function rel(ts) {
   if (!ts) return '';
-  const d = typeof ts === 'number' ? ts : Date.parse(ts);
+  const raw = typeof ts === 'number' ? ts : Date.parse(ts);
+  const d = raw < 10_000_000_000 ? raw * 1000 : raw;
+  if (!Number.isFinite(d)) return '';
   const s = (Date.now() - d) / 1000;
-  if (s < 60) return 'now';
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
 $('#send').onclick = send;
+$('#stop').onclick = interrupt;
+$('#input').addEventListener('input', autoResize);
 $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
-$('#stop').onclick = interrupt;
 
 boot();
