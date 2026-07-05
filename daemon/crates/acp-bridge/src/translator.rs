@@ -494,7 +494,7 @@ fn new_item_id(prefix: &str) -> String {
 }
 
 /// Decode a base64-encoded image payload to a temp file under
-/// `<tmp>/alleycat-acp-images/` and return the path. The file persists
+/// `<tmp>/doggypile-acp-images/` and return the path. The file persists
 /// for the lifetime of the daemon (no cleanup) — adequate for a v1
 /// since iOS only needs to load it while the conversation is open.
 fn write_image_data(data_b64: &str, mime: &str) -> std::io::Result<String> {
@@ -503,7 +503,7 @@ fn write_image_data(data_b64: &str, mime: &str) -> std::io::Result<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_b64.as_bytes())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let dir = std::env::temp_dir().join("alleycat-acp-images");
+    let dir = std::env::temp_dir().join("doggypile-acp-images");
     std::fs::create_dir_all(&dir)?;
     let ext = match mime.split('/').nth(1).unwrap_or("png") {
         "jpeg" => "jpg",

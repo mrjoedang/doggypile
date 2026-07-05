@@ -7,11 +7,11 @@
 //! tiny and changes are rare.
 //!
 //! For tests that need full lookup/insert semantics, prefer
-//! `alleycat_pi_bridge::index::ThreadIndex::open_at(tempdir)` over copying
+//! `doggypile_pi_bridge::index::ThreadIndex::open_at(tempdir)` over copying
 //! `InMemoryThreadIndex` here too.
 
-use alleycat_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
-use alleycat_pi_bridge::PiSessionRef;
+use doggypile_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
+use doggypile_pi_bridge::PiSessionRef;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 

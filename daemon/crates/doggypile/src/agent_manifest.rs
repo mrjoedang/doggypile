@@ -1,4 +1,4 @@
-//! Static metadata for every agent alleycat exposes — presentation
+//! Static metadata for every agent doggypile exposes — presentation
 //! hints (label, beta, sort order, aliases) and behavioral capability
 //! flags. Adding a new agent only requires extending the manifest list
 //! here plus wiring its bridge in `agents.rs`.

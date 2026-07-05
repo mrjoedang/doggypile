@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
-use alleycat_bridge_core::ThreadIndex;
-use alleycat_claude_bridge::index::ClaudeSessionRef;
-use alleycat_codex_proto::ThreadSourceKind;
+use doggypile_bridge_core::ThreadIndex;
+use doggypile_claude_bridge::index::ClaudeSessionRef;
+use doggypile_codex_proto::ThreadSourceKind;
 use serde_json::json;
 use tempfile::TempDir;
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // One-command local dev: build the daemon, serve the PWA on the LAN, ensure the
 // daemon is running, and print a QR that opens the PWA already paired.
-// The daemon persists in the background (like kittylitter); this process only
+// The daemon persists in the background (in the background); this process only
 // holds the static web server open. Ctrl-C stops serving (daemon keeps running;
 // `bun run stop` to stop it).
 import { spawnSync } from 'node:child_process';
@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const WEB = join(ROOT, 'web');
 const DAEMON_DIR = join(ROOT, 'daemon');
-const BIN = join(DAEMON_DIR, 'target', 'debug', 'alleycat');
+const BIN = join(DAEMON_DIR, 'target', 'debug', 'doggypile');
 const PORT = Number(process.env.PORT || 8123);
 
 const TYPES = {
@@ -53,7 +53,7 @@ function lanIp() {
 
 // 1. build the daemon (fast no-op once built)
 console.log('doggypile: building daemon…');
-if (spawnSync('cargo', ['build', '-p', 'alleycat', '--bin', 'alleycat'], { cwd: DAEMON_DIR, stdio: 'inherit' }).status !== 0) {
+if (spawnSync('cargo', ['build', '-p', 'doggypile', '--bin', 'doggypile'], { cwd: DAEMON_DIR, stdio: 'inherit' }).status !== 0) {
   console.error('doggypile: daemon build failed'); process.exit(1);
 }
 

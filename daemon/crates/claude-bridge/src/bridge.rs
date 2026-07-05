@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::server::{Bridge, Conn};
-use alleycat_bridge_core::{
+use doggypile_bridge_core::server::{Bridge, Conn};
+use doggypile_bridge_core::{
     JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex, error_codes,
 };
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -26,7 +26,7 @@ use crate::state::{ConnectionState, ThreadDefaults};
 
 /// Concrete handle type stored on the bridge. Uses [`crate::state::ThreadIndexHandle`]
 /// (a marker subtrait of `bridge_core::ThreadIndexHandle<ClaudeSessionRef>`)
-/// so the daemon's `Arc<dyn alleycat_claude_bridge::state::ThreadIndexHandle>`
+/// so the daemon's `Arc<dyn doggypile_claude_bridge::state::ThreadIndexHandle>`
 /// flows in directly through the compat shim.
 pub type ThreadIndexHandle = Arc<dyn crate::state::ThreadIndexHandle>;
 

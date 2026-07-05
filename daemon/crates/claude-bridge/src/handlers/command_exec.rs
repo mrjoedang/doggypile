@@ -24,10 +24,10 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     ChildProcess, LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode,
 };
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 use anyhow::Result;
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
@@ -318,7 +318,7 @@ mod tests {
     struct NoopIndex;
 
     #[async_trait::async_trait]
-    impl alleycat_bridge_core::ThreadIndexHandle<ClaudeSessionRef> for NoopIndex {
+    impl doggypile_bridge_core::ThreadIndexHandle<ClaudeSessionRef> for NoopIndex {
         async fn lookup(&self, _: &str) -> Option<crate::state::IndexEntry> {
             None
         }

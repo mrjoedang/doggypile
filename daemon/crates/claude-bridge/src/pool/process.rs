@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, ProcessLauncher, ProcessRole, ProcessSpec,
     StdioMode,
 };
@@ -217,10 +217,10 @@ impl Drop for TaskSet {
 
 impl ClaudeProcessHandle {
     /// Spawn `claude -p ...` per `config` using the default
-    /// [`alleycat_bridge_core::LocalLauncher`]. Convenience wrapper over
+    /// [`doggypile_bridge_core::LocalLauncher`]. Convenience wrapper over
     /// [`Self::launch_with`] for callers that don't need a custom launcher.
     pub async fn spawn(config: ClaudeSpawnConfig) -> Result<Self> {
-        let launcher: Arc<dyn ProcessLauncher> = Arc::new(alleycat_bridge_core::LocalLauncher);
+        let launcher: Arc<dyn ProcessLauncher> = Arc::new(doggypile_bridge_core::LocalLauncher);
         Self::launch_with(launcher, config).await
     }
 
@@ -605,7 +605,7 @@ impl ClaudeProcessHandle {
     }
 }
 
-impl alleycat_bridge_core::pool::PoolMember for ClaudeProcessHandle {
+impl doggypile_bridge_core::pool::PoolMember for ClaudeProcessHandle {
     async fn shutdown(&self) {
         ClaudeProcessHandle::shutdown(self).await
     }

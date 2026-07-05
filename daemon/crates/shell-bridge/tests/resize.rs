@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use alleycat_bridge_core::serve_stream;
-use alleycat_shell_bridge::ShellBridge;
+use doggypile_bridge_core::serve_stream;
+use doggypile_shell_bridge::ShellBridge;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};

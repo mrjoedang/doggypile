@@ -1,14 +1,14 @@
-//! Cross-platform filesystem path helpers for the alleycat daemon.
+//! Cross-platform filesystem path helpers for the doggypile daemon.
 //!
 //! Wraps `directories::ProjectDirs` so callers never see `Option<PathBuf>`
 //! ambiguity. Per-OS layout:
 //!
 //! | concern    | macOS                                  | Linux                       | Windows                                  |
 //! | ---------- | -------------------------------------- | --------------------------- | ---------------------------------------- |
-//! | config     | ~/Library/Application Support/<id>/    | $XDG_CONFIG_HOME/alleycat/  | %APPDATA%\Alleycat\alleycat\config\      |
-//! | state      | (collapses to config_dir)              | $XDG_STATE_HOME/alleycat/   | %LOCALAPPDATA%\Alleycat\alleycat\data\   |
+//! | config     | ~/Library/Application Support/<id>/    | $XDG_CONFIG_HOME/doggypile/  | %APPDATA%\doggypile\doggypile\config\      |
+//! | state      | (collapses to config_dir)              | $XDG_STATE_HOME/doggypile/   | %LOCALAPPDATA%\doggypile\doggypile\data\   |
 //! | logs       | ~/Library/Logs/<id>/                   | <state>/logs/               | <data_local>/logs/                       |
-//! | control IPC| $TMPDIR/alleycat-<hash>/control.sock   | $XDG_RUNTIME_DIR or <state> | \\.\pipe\alleycat-control-<userhash>     |
+//! | control IPC| $TMPDIR/doggypile-<hash>/control.sock   | $XDG_RUNTIME_DIR or <state> | \\.\pipe\doggypile-control-<userhash>     |
 //!
 //! On Unix the control socket intentionally does **not** live under
 //! `state_dir()` — `sockaddr_un.sun_path` is capped at 104 bytes on macOS /
@@ -22,8 +22,7 @@ use anyhow::{Context, anyhow};
 use directories::{BaseDirs, ProjectDirs};
 
 // Bundle identifiers come from the [`crate::App`] the binary supplies; the
-// alleycat library doesn't know whether it's being shipped as `kittylitter`,
-// `alleycat`, or anything else. See `crate::App` for the defaults used when
+// doggypile library doesn't know whether it's being shipped as `doggypile`. See `crate::App` for the defaults used when
 // no `App` has been registered (tests, doc snippets).
 
 fn project_dirs() -> anyhow::Result<ProjectDirs> {
@@ -161,10 +160,10 @@ pub fn control_socket_path() -> anyhow::Result<PathBuf> {
 
 /// Pick the parent directory for the control socket. Tries, in order:
 ///
-/// 1. `$XDG_RUNTIME_DIR/alleycat-<userhash>` (Linux ideal — tmpfs, per-user)
-/// 2. `<state_dir>/alleycat-<userhash>` (Linux fallback)
-/// 3. `$TMPDIR/alleycat-<userhash>` (macOS / BSD)
-/// 4. `/tmp/alleycat-<userhash>` (last resort)
+/// 1. `$XDG_RUNTIME_DIR/doggypile-<userhash>` (Linux ideal — tmpfs, per-user)
+/// 2. `<state_dir>/doggypile-<userhash>` (Linux fallback)
+/// 3. `$TMPDIR/doggypile-<userhash>` (macOS / BSD)
+/// 4. `/tmp/doggypile-<userhash>` (last resort)
 ///
 /// First candidate whose `<dir>/control.sock` fits in `SUN_PATH_MAX` wins.
 #[cfg(unix)]
@@ -232,7 +231,7 @@ fn short_user_hash(input: &str) -> String {
     hex::encode(&digest[..8])
 }
 
-/// `~/Library/LaunchAgents/dev.alleycat.alleycat.plist` on macOS.
+/// `~/Library/LaunchAgents/dev.doggypile.doggypile.plist` on macOS.
 pub fn launchd_plist_path() -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -248,7 +247,7 @@ pub fn launchd_plist_path() -> anyhow::Result<PathBuf> {
     }
 }
 
-/// `~/.config/systemd/user/alleycat.service` on Linux.
+/// `~/.config/systemd/user/doggypile.service` on Linux.
 #[allow(dead_code)]
 pub fn systemd_unit_path() -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "linux")]
@@ -266,7 +265,7 @@ pub fn systemd_unit_path() -> anyhow::Result<PathBuf> {
     }
 }
 
-/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\alleycat.lnk`.
+/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\doggypile.lnk`.
 #[allow(dead_code)]
 pub fn windows_startup_lnk_path() -> anyhow::Result<PathBuf> {
     #[cfg(windows)]
@@ -283,7 +282,7 @@ pub fn windows_startup_lnk_path() -> anyhow::Result<PathBuf> {
     }
 }
 
-/// `~/.config/autostart/alleycat.desktop` — fallback when systemctl --user is
+/// `~/.config/autostart/doggypile.desktop` — fallback when systemctl --user is
 /// unavailable.
 #[cfg(target_os = "linux")]
 pub fn xdg_autostart_path() -> anyhow::Result<PathBuf> {
@@ -361,7 +360,7 @@ mod tests {
         assert_ne!(s1.parent().unwrap(), s2.parent().unwrap());
         for s in [&s1, &s2] {
             let dir = s.parent().unwrap().file_name().unwrap().to_string_lossy();
-            assert!(dir.starts_with("alleycat-"));
+            assert!(dir.starts_with("doggypile-"));
         }
     }
 
@@ -386,7 +385,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let runtime = PathBuf::from(format!("/tmp/alleycat-rt-{}-{stamp}", std::process::id()));
+        let runtime = PathBuf::from(format!("/tmp/doggypile-rt-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&runtime).unwrap();
         h.override_env(&[("XDG_RUNTIME_DIR", runtime.to_str().unwrap())]);
         let sock = control_socket_path().unwrap();
@@ -399,7 +398,7 @@ mod tests {
     fn launchd_plist_path_label() {
         let _h = TempHome::new();
         let p = launchd_plist_path().unwrap();
-        assert_eq!(p.file_name().unwrap(), "dev.alleycat.alleycat.plist");
+        assert_eq!(p.file_name().unwrap(), "dev.doggypile.doggypile.plist");
         assert!(p.to_string_lossy().contains("Library/LaunchAgents"));
     }
 
@@ -410,7 +409,7 @@ mod tests {
         let p = systemd_unit_path().unwrap();
         assert!(
             p.to_string_lossy()
-                .ends_with("systemd/user/alleycat.service")
+                .ends_with("systemd/user/doggypile.service")
         );
     }
 
@@ -420,7 +419,7 @@ mod tests {
         let _h = TempHome::new();
         let p = windows_startup_lnk_path().unwrap();
         let s = p.to_string_lossy().to_string();
-        assert!(s.ends_with(r"Startup\alleycat.lnk"));
+        assert!(s.ends_with(r"Startup\doggypile.lnk"));
     }
 
     #[cfg(target_os = "macos")]
@@ -436,7 +435,7 @@ mod tests {
         let _h = TempHome::new();
         let p = log_dir().unwrap();
         let s = p.to_string_lossy();
-        assert!(s.contains("Library/Logs/dev.Alleycat.alleycat"));
+        assert!(s.contains("Library/Logs/dev.doggypile.doggypile"));
     }
 
     #[cfg(target_os = "linux")]

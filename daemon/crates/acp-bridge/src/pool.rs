@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alleycat_bridge_core::ProcessLauncher;
+use doggypile_bridge_core::ProcessLauncher;
 use anyhow::Result;
 use dashmap::DashMap;
 use tokio::sync::RwLock;

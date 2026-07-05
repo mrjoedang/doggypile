@@ -1,9 +1,9 @@
-//! `alleycat probe` — local debug client that connects to the daemon over iroh
+//! `doggypile probe` — local debug client that connects to the daemon over iroh
 //! exactly the way the phone does, runs the JSON-RPC initialize handshake
 //! against an agent, and invokes a method (default `thread/list`).
 //!
 //! Two modes:
-//! - No `--agent`: round-trip a `list_agents` over the alleycat protocol and
+//! - No `--agent`: round-trip a `list_agents` over the doggypile protocol and
 //!   print the agent table.
 //! - With `--agent <name>`: open a `connect`-style stream, send `initialize`
 //!   + `initialized` + the user-supplied method, and dump every JSON-RPC frame
@@ -31,7 +31,7 @@ use crate::cli;
 use crate::daemon::control::Request as ControlRequest;
 use crate::framing::{read_json_frame, write_json_frame};
 use crate::host;
-use crate::protocol::{ALLEYCAT_ALPN, PROTOCOL_VERSION, PairPayload, Request, Response, Resume};
+use crate::protocol::{DOGGYPILE_ALPN, PROTOCOL_VERSION, PairPayload, Request, Response, Resume};
 
 #[derive(Args, Debug)]
 pub struct ProbeArgs {
@@ -64,7 +64,7 @@ pub struct ProbeArgs {
     #[arg(long, value_enum, default_value_t = ProbeWire::Auto)]
     pub wire: ProbeWire,
     /// Override the node id to dial. Defaults to the local daemon's node id
-    /// (read from `host.key`). Useful for probing a remote alleycat.
+    /// (read from `host.key`). Useful for probing a remote doggypile.
     #[arg(long)]
     pub node_id: Option<String>,
     /// Override the auth token. Defaults to the local daemon's token (read
@@ -88,9 +88,9 @@ pub struct ProbeArgs {
     /// response arrives before `turn/completed`.
     #[arg(long)]
     pub until_method: Option<String>,
-    /// Send an explicit alleycat resume cursor on connect. Useful for
+    /// Send an explicit doggypile resume cursor on connect. Useful for
     /// debugging reconnect/replay behavior; clients normally use the highest
-    /// `_alleycat_seq` they observed before reconnecting.
+    /// `_doggypile_seq` they observed before reconnecting.
     #[arg(long)]
     pub resume_from: Option<u64>,
     /// After the first probe finishes, open a second connect stream on the
@@ -175,9 +175,9 @@ async fn probe_with_endpoint(
 
     let addr = endpoint_addr(node_id, relay)?;
     let conn = endpoint
-        .connect(addr, ALLEYCAT_ALPN)
+        .connect(addr, DOGGYPILE_ALPN)
         .await
-        .with_context(|| format!("dialing alleycat node {node_id}"))?;
+        .with_context(|| format!("dialing doggypile node {node_id}"))?;
     eprintln!("probe: iroh connection established");
 
     let result = match args.agent.as_deref() {
@@ -433,10 +433,10 @@ async fn probe_agent_websocket(
 ) -> anyhow::Result<()> {
     let (send, recv) = open_agent_stream(conn, token, agent, resume_from, "WebSocket").await?;
     let stream = tokio::io::join(recv, send);
-    let websocket_url = format!("ws://alleycat/{agent}");
+    let websocket_url = format!("ws://doggypile/{agent}");
     let (mut ws, _) = tokio_tungstenite::client_async(websocket_url.as_str(), stream)
         .await
-        .context("opening WebSocket over alleycat stream")?;
+        .context("opening WebSocket over doggypile stream")?;
 
     let init = initialize_request();
     write_websocket_json(&mut ws, &init).await?;
@@ -487,9 +487,9 @@ fn initialize_request() -> Value {
         "method": "initialize",
         "params": {
             "clientInfo": {
-                "name": "alleycat-probe",
+                "name": "doggypile-probe",
                 "version": env!("CARGO_PKG_VERSION"),
-                "title": "alleycat-probe"
+                "title": "doggypile-probe"
             },
             "capabilities": { "experimentalApi": true }
         }
@@ -762,7 +762,7 @@ async fn build_client_endpoint() -> anyhow::Result<Endpoint> {
     let secret = SecretKey::generate();
     Endpoint::builder(presets::N0)
         .secret_key(secret)
-        .alpns(vec![ALLEYCAT_ALPN.to_vec()])
+        .alpns(vec![DOGGYPILE_ALPN.to_vec()])
         .bind()
         .await
         .context("binding probe client endpoint")

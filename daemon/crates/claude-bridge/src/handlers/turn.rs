@@ -31,7 +31,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 
 use crate::approval;
 use crate::handlers::model::normalize_claude_model_id;
@@ -701,7 +701,7 @@ mod tests {
 
     async fn dummy_state() -> Arc<ConnectionState> {
         let dir = tempfile::tempdir().unwrap();
-        let index = alleycat_bridge_core::ThreadIndex::<crate::index::ClaudeSessionRef>::open_at(
+        let index = doggypile_bridge_core::ThreadIndex::<crate::index::ClaudeSessionRef>::open_at(
             dir.path().join("t.json"),
         )
         .await

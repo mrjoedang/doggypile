@@ -20,6 +20,7 @@ pub mod rotate;
 pub mod status;
 pub mod stop;
 pub mod upgrade;
+pub mod web;
 
 /// Send a single request to the daemon and read back the response.
 /// Errors with a friendly hint if the daemon is not running.

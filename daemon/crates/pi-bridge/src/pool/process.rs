@@ -26,7 +26,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, LocalLauncher, ProcessLauncher,
     ProcessRole, ProcessSpec, StdioMode,
 };
@@ -335,7 +335,7 @@ impl PiProcessHandle {
     }
 }
 
-impl alleycat_bridge_core::pool::PoolMember for PiProcessHandle {
+impl doggypile_bridge_core::pool::PoolMember for PiProcessHandle {
     async fn shutdown(&self) {
         PiProcessHandle::shutdown(self).await
     }

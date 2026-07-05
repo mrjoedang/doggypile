@@ -233,7 +233,7 @@ pub struct GrokAgentConfig {
     pub bin: String,
 
     /// Start a fresh agent instead of joining a leader process.
-    /// Recommended default for Alleycat usage.
+    /// Recommended default for Doggypile usage.
     pub no_leader: bool,
 
     /// Specific model ID to request (e.g. "grok-build").

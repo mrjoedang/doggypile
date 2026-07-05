@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, error_codes,
 };
 use anyhow::{Context, Result, bail};
@@ -31,7 +31,7 @@ use crate::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
 /// Build the per-session map key from the session's `(node_id, agent)`
 /// identity. Matches the registry's keying so the same daemon-managed
 /// session gets the same `ThreadDefaults` slot across reattaches.
-fn session_key(session: &alleycat_bridge_core::session::Session) -> String {
+fn session_key(session: &doggypile_bridge_core::session::Session) -> String {
     format!("{}:{}", session.node_id, session.agent)
 }
 

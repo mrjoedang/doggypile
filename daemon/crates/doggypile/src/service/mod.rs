@@ -1,8 +1,8 @@
-//! Per-OS install / uninstall of an autostart entry for `alleycat serve`.
+//! Per-OS install / uninstall of an autostart entry for `doggypile serve`.
 //!
 //! All three platforms are first-class and **never require admin**:
-//! - macOS: launchd user agent (`~/Library/LaunchAgents/dev.alleycat.alleycat.plist`).
-//! - Linux: systemd user unit, with `~/.config/autostart/alleycat.desktop`
+//! - macOS: launchd user agent (`~/Library/LaunchAgents/dev.doggypile.doggypile.plist`).
+//! - Linux: systemd user unit, with `~/.config/autostart/doggypile.desktop`
 //!   as a fallback for desktops without a reachable systemd user manager.
 //! - Windows: `.lnk` in the per-user Startup folder, written by the `mslnk`
 //!   crate (no COM, no admin).
@@ -16,13 +16,13 @@ mod windows;
 
 /// Reverse-DNS service label, matched by `paths::launchd_plist_path()` and
 /// the systemd unit filename. Comes from the [`crate::App`] the binary
-/// supplied at startup (e.g. `com.sigkitten.kittylitter` for the shipped
-/// kittylitter wrapper, `dev.alleycat.alleycat` for the dev binary).
+/// supplied at startup (e.g. `com.sigkitten.doggypile` for the shipped
+/// doggypile wrapper, `dev.doggypile.doggypile` for the dev binary).
 pub fn service_label() -> &'static str {
     crate::app().label
 }
 
-/// Subcommand the autostart entry invokes on the `alleycat` binary.
+/// Subcommand the autostart entry invokes on the `doggypile` binary.
 pub const DAEMON_SUBCOMMAND: &str = "serve";
 
 /// Install the autostart entry. Idempotent — calling twice is a no-op after
@@ -44,7 +44,7 @@ pub fn install() -> anyhow::Result<()> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         Err(anyhow::anyhow!(
-            "alleycat install is not supported on this platform"
+            "doggypile install is not supported on this platform"
         ))
     }
 }

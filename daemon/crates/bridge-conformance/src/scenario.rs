@@ -77,7 +77,7 @@ impl ScenarioConfig {
             prompt: "Reply with exactly the word OK and nothing else.".to_string(),
             tool_prompt: String::new(), // populated per-run by `run` so the
             // marker token is unique each time.
-            client_name: format!("alleycat-bridge-conformance/{}", target.label()),
+            client_name: format!("doggypile-bridge-conformance/{}", target.label()),
             client_version: env!("CARGO_PKG_VERSION").to_string(),
             model: match target {
                 TargetId::Opencode => std::env::var("BRIDGE_CONFORMANCE_OPENCODE_MODEL")
@@ -104,7 +104,7 @@ fn fresh_marker() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("alleycat-conformance-{nanos:x}")
+    format!("doggypile-conformance-{nanos:x}")
 }
 
 /// Run the full scenario against one client. The transport may fail mid-
@@ -197,7 +197,7 @@ pub async fn run(
     // Step 5: resume the cached test thread, or start a new one ------------
     //
     // Per-target thread persistence: we keep one canonical "conformance"
-    // thread per target across runs (cached in `~/.cache/alleycat-bridge-
+    // thread per target across runs (cached in `~/.cache/doggypile-bridge-
     // conformance/threads.json`) so the harness doesn't pollute the user's
     // real thread list with a fresh row every time. First run on a clean
     // machine creates the thread; every later run resumes it.

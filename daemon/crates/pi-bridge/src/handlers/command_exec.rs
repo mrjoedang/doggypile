@@ -27,7 +27,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use alleycat_bridge_core::{ChildProcess, ProcessRole, ProcessSpec, StdioMode};
+use doggypile_bridge_core::{ChildProcess, ProcessRole, ProcessSpec, StdioMode};
 use anyhow::Result;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;

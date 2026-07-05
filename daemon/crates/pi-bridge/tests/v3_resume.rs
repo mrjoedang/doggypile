@@ -18,11 +18,11 @@ mod support;
 
 use std::sync::Arc;
 
-use alleycat_pi_bridge::codex_proto as p;
-use alleycat_pi_bridge::handlers;
-use alleycat_pi_bridge::index::ThreadIndex;
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::state::{ConnectionState, ThreadDefaults};
+use doggypile_pi_bridge::codex_proto as p;
+use doggypile_pi_bridge::handlers;
+use doggypile_pi_bridge::index::ThreadIndex;
+use doggypile_pi_bridge::pool::PiPool;
+use doggypile_pi_bridge::state::{ConnectionState, ThreadDefaults};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -83,7 +83,7 @@ async fn resume_after_state_drop_repopulates_turns_from_jsonl() {
     let pool1 = Arc::new(PiPool::new(fake_pi_path()));
     let (state1, _rx1) = ConnectionState::for_test(
         pool1,
-        Arc::clone(&index1) as Arc<dyn alleycat_pi_bridge::state::ThreadIndexHandle>,
+        Arc::clone(&index1) as Arc<dyn doggypile_pi_bridge::state::ThreadIndexHandle>,
         ThreadDefaults::default(),
     );
 
@@ -119,7 +119,7 @@ async fn resume_after_state_drop_repopulates_turns_from_jsonl() {
     let pool2 = Arc::new(PiPool::new(fake_pi_path()));
     let (state2, _rx2) = ConnectionState::for_test(
         pool2,
-        Arc::clone(&index2) as Arc<dyn alleycat_pi_bridge::state::ThreadIndexHandle>,
+        Arc::clone(&index2) as Arc<dyn doggypile_pi_bridge::state::ThreadIndexHandle>,
         ThreadDefaults::default(),
     );
 

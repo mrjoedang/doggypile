@@ -16,11 +16,11 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::framing::write_json_line;
-use alleycat_claude_bridge::index::ThreadIndex;
-use alleycat_claude_bridge::pool::ClaudePool;
-use alleycat_claude_bridge::run_connection;
-use alleycat_claude_bridge::state::ThreadIndexHandle;
+use doggypile_bridge_core::framing::write_json_line;
+use doggypile_claude_bridge::index::ThreadIndex;
+use doggypile_claude_bridge::pool::ClaudePool;
+use doggypile_claude_bridge::run_connection;
+use doggypile_claude_bridge::state::ThreadIndexHandle;
 use serde_json::{Value, json};
 use std::time::Instant;
 use tempfile::TempDir;

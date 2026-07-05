@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use alleycat_codex_proto as proto;
+use doggypile_codex_proto as proto;
 
 use crate::{Frame, FrameKind};
 

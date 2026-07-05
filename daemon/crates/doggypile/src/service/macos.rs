@@ -158,7 +158,7 @@ fn render_plist(
     // which makes `which::which` fail for tools installed under ~/.bun/bin,
     // ~/.opencode/bin, /opt/homebrew/bin, etc. Inheriting the install-time
     // PATH preserves the user's expectation that "opencode" / "pi" resolve
-    // the same way they do in the shell that ran `alleycat install`. SHELL is
+    // the same way they do in the shell that ran `doggypile install`. SHELL is
     // safe to persist and lets the launch-environment resolver choose fish,
     // zsh, bash, or sh the same way the user does.
     let mut env_entries = String::new();
@@ -226,7 +226,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        path.push(format!("alleycat-svc-macos-{}-{stamp}", std::process::id()));
+        path.push(format!("doggypile-svc-macos-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&path).expect("temp dir");
         path
     }
@@ -234,13 +234,13 @@ mod tests {
     #[test]
     fn write_plist_renders_expected_keys() {
         let tmp = tempdir();
-        let plist = tmp.join("dev.alleycat.alleycat.plist");
-        let exe = PathBuf::from("/usr/local/bin/alleycat");
+        let plist = tmp.join("dev.doggypile.doggypile.plist");
+        let exe = PathBuf::from("/usr/local/bin/doggypile");
         let log = tmp.join("daemon.log");
         write_plist(&plist, &exe, &log, None, None).expect("write_plist");
         let body = std::fs::read_to_string(&plist).expect("read plist");
-        assert!(body.contains("<string>dev.alleycat.alleycat</string>"));
-        assert!(body.contains("<string>/usr/local/bin/alleycat</string>"));
+        assert!(body.contains("<string>dev.doggypile.doggypile</string>"));
+        assert!(body.contains("<string>/usr/local/bin/doggypile</string>"));
         assert!(body.contains(&format!("<string>{DAEMON_SUBCOMMAND}</string>")));
         assert!(body.contains("<key>RunAtLoad</key>"));
         assert!(body.contains("<key>KeepAlive</key>"));
@@ -256,8 +256,8 @@ mod tests {
     #[test]
     fn write_plist_includes_environment_when_inherit_path_set() {
         let tmp = tempdir();
-        let plist = tmp.join("dev.alleycat.alleycat.plist");
-        let exe = PathBuf::from("/usr/local/bin/alleycat");
+        let plist = tmp.join("dev.doggypile.doggypile.plist");
+        let exe = PathBuf::from("/usr/local/bin/doggypile");
         let log = tmp.join("daemon.log");
         write_plist(
             &plist,

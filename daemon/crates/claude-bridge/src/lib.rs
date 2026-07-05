@@ -1,4 +1,4 @@
-//! `alleycat-claude-bridge` — codex app-server façade over `claude -p`.
+//! `doggypile-claude-bridge` — codex app-server façade over `claude -p`.
 
 pub mod approval;
 pub mod bridge;

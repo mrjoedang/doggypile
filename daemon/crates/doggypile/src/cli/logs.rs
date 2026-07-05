@@ -1,4 +1,4 @@
-//! `alleycat logs` — read daemon log files directly from disk. Does not go
+//! `doggypile logs` — read daemon log files directly from disk. Does not go
 //! through the daemon; the log file is just a file under `paths::log_dir()`.
 //! `--follow` polls at 200ms; deliberately avoids the `notify` crate.
 

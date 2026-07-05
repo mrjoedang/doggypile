@@ -28,7 +28,7 @@ pub(super) fn install() -> anyhow::Result<()> {
         eprintln!(
             "Hint: to start the daemon at boot rather than at login, run:\n  \
              loginctl enable-linger $USER\n\
-             (this needs sudo and is intentionally not run by `alleycat install`)"
+             (this needs sudo and is intentionally not run by `doggypile install`)"
         );
         return Ok(());
     }
@@ -45,7 +45,7 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     Err(anyhow!(
         "Linux init not supported (no reachable `systemd --user` session, no XDG graphical session). \
-         Run `alleycat serve` manually under your init."
+         Run `doggypile serve` manually under your init."
     ))
 }
 
@@ -123,7 +123,7 @@ fn render_systemd_unit(
     // systemd `--user` units inherit `DefaultEnvironment=` from `manager.conf`,
     // not the user's interactive shell. Propagating PATH preserves the
     // expectation that `which("opencode")` / `which("pi")` resolves the
-    // same way it does in the shell that ran `alleycat install`. SHELL is safe
+    // same way it does in the shell that ran `doggypile install`. SHELL is safe
     // to persist and lets the launch-environment resolver choose fish, zsh,
     // bash, or sh the same way the user does.
     let mut env_line = String::new();
@@ -138,7 +138,7 @@ fn render_systemd_unit(
     }
     format!(
         "[Unit]\n\
-         Description=Alleycat bridge daemon\n\
+         Description=doggypile bridge daemon\n\
          After=network-online.target\n\
          \n\
          [Service]\n\
@@ -177,7 +177,7 @@ fn render_autostart_desktop(exe: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
-         Name=Alleycat\n\
+         Name=doggypile\n\
          Exec={exe} {DAEMON_SUBCOMMAND}\n\
          Hidden=false\n\
          X-GNOME-Autostart-enabled=true\n\
@@ -246,7 +246,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        path.push(format!("alleycat-svc-linux-{}-{stamp}", std::process::id()));
+        path.push(format!("doggypile-svc-linux-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&path).expect("temp dir");
         path
     }
@@ -282,12 +282,12 @@ mod tests {
     #[test]
     fn write_systemd_unit_contains_exec_start() {
         let tmp = tempdir();
-        let unit = tmp.join("alleycat.service");
-        let exe = PathBuf::from("/opt/alleycat/bin/alleycat");
+        let unit = tmp.join("doggypile.service");
+        let exe = PathBuf::from("/opt/doggypile/bin/doggypile");
         write_systemd_unit(&unit, &exe, None, None).expect("write unit");
         let body = std::fs::read_to_string(&unit).expect("read unit");
         assert!(body.contains(&format!(
-            "ExecStart=/opt/alleycat/bin/alleycat {DAEMON_SUBCOMMAND}"
+            "ExecStart=/opt/doggypile/bin/doggypile {DAEMON_SUBCOMMAND}"
         )));
         assert!(body.contains("Restart=on-failure"));
         assert!(body.contains("WantedBy=default.target"));
@@ -301,8 +301,8 @@ mod tests {
     #[test]
     fn write_systemd_unit_includes_environment_when_inherit_path_set() {
         let tmp = tempdir();
-        let unit = tmp.join("alleycat.service");
-        let exe = PathBuf::from("/opt/alleycat/bin/alleycat");
+        let unit = tmp.join("doggypile.service");
+        let exe = PathBuf::from("/opt/doggypile/bin/doggypile");
         write_systemd_unit(
             &unit,
             &exe,
@@ -328,11 +328,11 @@ mod tests {
     #[test]
     fn write_autostart_desktop_contains_exec() {
         let tmp = tempdir();
-        let desktop = tmp.join("alleycat.desktop");
-        let exe = PathBuf::from("/usr/bin/alleycat");
+        let desktop = tmp.join("doggypile.desktop");
+        let exe = PathBuf::from("/usr/bin/doggypile");
         write_autostart_desktop(&desktop, &exe).expect("write desktop");
         let body = std::fs::read_to_string(&desktop).expect("read desktop");
-        assert!(body.contains(&format!("Exec=/usr/bin/alleycat {DAEMON_SUBCOMMAND}")));
+        assert!(body.contains(&format!("Exec=/usr/bin/doggypile {DAEMON_SUBCOMMAND}")));
         assert!(body.contains("[Desktop Entry]"));
         assert!(body.contains("Type=Application"));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -340,10 +340,10 @@ mod tests {
 
     #[test]
     fn systemd_unit_name_uses_actual_packaged_unit_filename() {
-        let unit = PathBuf::from("/home/me/.config/systemd/user/kittylitter.service");
+        let unit = PathBuf::from("/home/me/.config/systemd/user/doggypile.service");
         assert_eq!(
             systemd_unit_name(&unit).expect("unit name"),
-            "kittylitter.service"
+            "doggypile.service"
         );
     }
 
@@ -401,7 +401,7 @@ mod tests {
         if let Some(parent) = unit_path.parent() {
             std::fs::create_dir_all(parent).expect("create unit parent");
         }
-        std::fs::write(&unit_path, b"[Unit]\nDescription=Alleycat\n").expect("write unit");
+        std::fs::write(&unit_path, b"[Unit]\nDescription=doggypile\n").expect("write unit");
 
         assert!(
             is_installed().expect("check installed"),

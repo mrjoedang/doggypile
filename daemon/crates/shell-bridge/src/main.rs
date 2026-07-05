@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use alleycat_bridge_core::serve_stdio;
+use doggypile_bridge_core::serve_stdio;
 #[cfg(unix)]
-use alleycat_bridge_core::{ServerOptions, serve_unix};
-use alleycat_shell_bridge::ShellBridge;
+use doggypile_bridge_core::{ServerOptions, serve_unix};
+use doggypile_shell_bridge::ShellBridge;
 
 enum Transport {
     Socket(PathBuf),
@@ -11,7 +11,7 @@ enum Transport {
 }
 
 fn transport_from_env_or_args() -> Transport {
-    if let Some(path) = std::env::var_os("ALLEYCAT_BRIDGE_SOCKET") {
+    if let Some(path) = std::env::var_os("DOGGYPILE_BRIDGE_SOCKET") {
         return Transport::Socket(PathBuf::from(path));
     }
     let mut args = std::env::args_os().skip(1);

@@ -1,16 +1,16 @@
-//! `alleycat-pi-bridge` binary entry point.
+//! `doggypile-pi-bridge` binary entry point.
 //!
 //! Defaults to stdio. With `--socket <path>` (alias `--listen`) or
-//! `ALLEYCAT_BRIDGE_SOCKET=<path>` it listens on a Unix socket. The daemon
-//! path (alleycat host) constructs `PiBridge` directly via the builder; this
+//! `DOGGYPILE_BRIDGE_SOCKET=<path>` it listens on a Unix socket. The daemon
+//! path (doggypile host) constructs `PiBridge` directly via the builder; this
 //! binary is a thin shell around the same builder for standalone test /
 //! developer workflows.
 
 use std::path::PathBuf;
 
 #[cfg(unix)]
-use alleycat_bridge_core::ServerOptions;
-use alleycat_pi_bridge::PiBridge;
+use doggypile_bridge_core::ServerOptions;
+use doggypile_pi_bridge::PiBridge;
 use anyhow::Result;
 
 #[tokio::main]
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .init();
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
-        "alleycat-pi-bridge starting"
+        "doggypile-pi-bridge starting"
     );
 
     let bridge = PiBridge::builder().from_env().build().await?;
@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
             tracing::info!(socket = %path.display(), "pi bridge socket listening");
             #[cfg(unix)]
             {
-                alleycat_bridge_core::serve_unix(
+                doggypile_bridge_core::serve_unix(
                     bridge,
                     ServerOptions {
                         socket_path: path,
@@ -52,11 +52,11 @@ async fn main() -> Result<()> {
                 );
             }
         }
-        None => alleycat_bridge_core::serve_stdio(bridge).await,
+        None => doggypile_bridge_core::serve_stdio(bridge).await,
     }
 }
 
-/// Accept `--socket <path>`, `--listen <path>`, or the `ALLEYCAT_BRIDGE_SOCKET`
+/// Accept `--socket <path>`, `--listen <path>`, or the `DOGGYPILE_BRIDGE_SOCKET`
 /// env var. Two CLI spellings exist so existing scripts using `--socket` keep
 /// working.
 fn socket_arg() -> Option<PathBuf> {
@@ -66,5 +66,5 @@ fn socket_arg() -> Option<PathBuf> {
             return args.next().map(PathBuf::from);
         }
     }
-    std::env::var_os("ALLEYCAT_BRIDGE_SOCKET").map(PathBuf::from)
+    std::env::var_os("DOGGYPILE_BRIDGE_SOCKET").map(PathBuf::from)
 }

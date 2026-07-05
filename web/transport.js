@@ -1,4 +1,4 @@
-// Transport: dial the alleycat daemon over iroh (wasm), do the alleycat
+// Transport: dial the doggypile daemon over iroh (wasm), do the doggypile
 // handshake, then speak the agent's WebSocket wire over the QUIC stream. Codex
 // uses websocket wire, so after the handshake we run a minimal RFC 6455 client
 // over the raw byte channel and surface each text frame as a JSON-RPC line.
@@ -6,7 +6,7 @@
 // Interface is unchanged from the old transport: connect(...) -> { sendLine, close }.
 import init, { Channel } from './vendor/iroh/doggypile_transport.js?v=20260705-paths';
 
-const ALPN = new TextEncoder().encode('alleycat/1');
+const ALPN = new TextEncoder().encode('doggypile/1');
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -45,7 +45,7 @@ export async function connect({ nodeId, token, relay, directAddrs = [], agent = 
   const need = async (n) => { while (buf.length < n) await pull(); };
   const take = (n) => { const out = buf.slice(0, n); buf = buf.slice(n); return out; };
 
-  // --- alleycat length-prefixed JSON handshake ---
+  // --- doggypile length-prefixed JSON handshake ---
   const reqBody = enc.encode(JSON.stringify({ op: 'connect', v: 1, token, agent }));
   const reqFrame = new Uint8Array(4 + reqBody.length);
   new DataView(reqFrame.buffer).setUint32(0, reqBody.length, false);
@@ -58,14 +58,14 @@ export async function connect({ nodeId, token, relay, directAddrs = [], agent = 
   await need(respLen);
   mark('auth', t);
   const resp = JSON.parse(dec.decode(take(respLen)));
-  if (!resp.ok) throw new Error(resp.error || 'alleycat handshake rejected');
+  if (!resp.ok) throw new Error(resp.error || 'doggypile handshake rejected');
   if (resp.auth_token) onToken?.(resp.auth_token);
 
   // --- WebSocket client handshake (RFC 6455) over the stream ---
   const keyBytes = crypto.getRandomValues(new Uint8Array(16));
   const secKey = btoa(String.fromCharCode(...keyBytes));
   await ch.send(enc.encode(
-    `GET /${agent} HTTP/1.1\r\nHost: alleycat\r\nUpgrade: websocket\r\n` +
+    `GET /${agent} HTTP/1.1\r\nHost: doggypile\r\nUpgrade: websocket\r\n` +
     `Connection: Upgrade\r\nSec-WebSocket-Key: ${secKey}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
   ));
   t = performance.now();

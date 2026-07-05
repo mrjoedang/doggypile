@@ -682,7 +682,7 @@ pub async fn handle_thread_list(
         key: params.sort_key.unwrap_or(p::ThreadSortKey::CreatedAt),
         direction: params.sort_direction.unwrap_or(SortDirection::Desc),
     };
-    let limit = alleycat_bridge_core::resolve_list_limit(params.limit);
+    let limit = doggypile_bridge_core::resolve_list_limit(params.limit);
     // `use_state_db_only` is accepted but inherently true for this bridge:
     // pi-bridge always lists from the threads.json index, and scan-and-repair
     // hydration runs once at startup (see `index::open_and_hydrate`), not
@@ -699,7 +699,7 @@ pub async fn handle_thread_list(
     let backwards_cursor = page
         .data
         .first()
-        .map(|e| alleycat_bridge_core::encode_backwards_cursor(e, sort));
+        .map(|e| doggypile_bridge_core::encode_backwards_cursor(e, sort));
 
     // Enrich entries that pi has actually spawned right now so codex
     // clients can render the correct badge without a follow-up
@@ -934,12 +934,12 @@ fn thread_from_entry(entry: &IndexEntry) -> p::Thread {
                 .into_owned(),
         ),
         cwd: entry.cwd.clone(),
-        cli_version: format!("alleycat-pi-bridge/{}", env!("CARGO_PKG_VERSION")),
+        cli_version: format!("doggypile-pi-bridge/{}", env!("CARGO_PKG_VERSION")),
         source: source_kind_to_session_source(entry.source),
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: doggypile_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -1213,7 +1213,7 @@ mod tests {
 
     async fn dummy_state() -> (
         Arc<ConnectionState>,
-        mpsc::UnboundedReceiver<alleycat_bridge_core::session::Sequenced>,
+        mpsc::UnboundedReceiver<doggypile_bridge_core::session::Sequenced>,
     ) {
         let dir = tempfile::tempdir().unwrap();
         let index = crate::index::ThreadIndex::open_at(dir.path().join("threads.json"))

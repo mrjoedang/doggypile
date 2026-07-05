@@ -1,4 +1,4 @@
-//! `alleycat-acp-bridge` — codex app-server façade over ACP-compliant agents.
+//! `doggypile-acp-bridge` — codex app-server façade over ACP-compliant agents.
 
 pub mod acp_client;
 pub mod bridge;

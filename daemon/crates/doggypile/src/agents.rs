@@ -5,22 +5,22 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alleycat_acp_bridge::AcpBridge;
-use alleycat_amp_bridge::AmpBridge;
-use alleycat_bridge_core::codex_resolver::{newest_codex_candidates_first, program_candidates};
-use alleycat_bridge_core::session::{Session, SessionRegistry, SessionRegistryConfig};
-use alleycat_bridge_core::{
+use doggypile_acp_bridge::AcpBridge;
+use doggypile_amp_bridge::AmpBridge;
+use doggypile_bridge_core::codex_resolver::{newest_codex_candidates_first, program_candidates};
+use doggypile_bridge_core::session::{Session, SessionRegistry, SessionRegistryConfig};
+use doggypile_bridge_core::{
     Bridge, LaunchEnvironment, LaunchEnvironmentResolver, LocalLauncher, ProcessLauncher,
     UserEnvironmentLauncher,
 };
-use alleycat_claude_bridge::ClaudeBridge;
-use alleycat_devin_bridge::DevinBridge;
-use alleycat_droid_bridge::DroidBridge;
-use alleycat_grok_bridge::GrokBridge;
-use alleycat_hermes_bridge::{HermesBridge, HermesBridgeConfig};
-use alleycat_opencode_bridge::OpencodeBridge;
-use alleycat_pi_bridge::PiBridge;
-use alleycat_shell_bridge::ShellBridge;
+use doggypile_claude_bridge::ClaudeBridge;
+use doggypile_devin_bridge::DevinBridge;
+use doggypile_droid_bridge::DroidBridge;
+use doggypile_grok_bridge::GrokBridge;
+use doggypile_hermes_bridge::{HermesBridge, HermesBridgeConfig};
+use doggypile_opencode_bridge::OpencodeBridge;
+use doggypile_pi_bridge::PiBridge;
+use doggypile_shell_bridge::ShellBridge;
 use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
 use serde::Deserialize;
@@ -38,7 +38,7 @@ use crate::protocol::{AgentInfo, AgentWire};
 use crate::stream::IrohStream;
 
 /// Stable identifier for a JSON-RPC bridge agent. Codex is intentionally
-/// excluded — Alleycat talks to it directly through Codex's app-server
+/// excluded — Doggypile talks to it directly through Codex's app-server
 /// transport, using the best mode supported by the local codex binary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentKind {
@@ -123,7 +123,7 @@ pub struct AgentManager {
     opencode_bridge: Arc<OnceCell<Arc<OpencodeBridge>>>,
     /// One daemon-owned `codex app-server` child for modes that keep a shared
     /// app-server alive (`UnixProxy` or legacy `Websocket`). Not populated when
-    /// Alleycat is proxying to an externally-started Codex app-server.
+    /// Doggypile is proxying to an externally-started Codex app-server.
     codex_child: Arc<Mutex<Option<Child>>>,
     /// Detected once at startup. Determines whether `serve_codex` runs the
     /// upstream daemon proxy, legacy Unix proxy, legacy websocket byte-pump, or
@@ -251,7 +251,7 @@ impl AgentManager {
 
         let hermes_cfg = &snapshot.agents.hermes;
         let hermes_bridge_cfg = HermesBridgeConfig {
-            mode: alleycat_hermes_bridge::HermesMode::Auto {
+            mode: doggypile_hermes_bridge::HermesMode::Auto {
                 api_base: hermes_cfg.api_base.clone(),
                 bin: Some(hermes_cfg.bin.clone()),
             },
@@ -431,7 +431,7 @@ impl AgentManager {
                     anyhow!("agent `{}` is not configured", agent_kind_str(other))
                 })?,
             };
-        alleycat_bridge_core::serve_stream_with_session(bridge, stream, session, last_seen)
+        doggypile_bridge_core::serve_stream_with_session(bridge, stream, session, last_seen)
             .await
             .with_context(|| format!("serving `{}` bridge stream", agent_kind_str(kind)))
     }
@@ -618,7 +618,7 @@ impl AgentManager {
     }
 
     /// Ensures Codex's default Unix-socket app-server is reachable. If an
-    /// external Codex daemon/Desktop already owns the socket, Alleycat leaves it
+    /// external Codex daemon/Desktop already owns the socket, Doggypile leaves it
     /// alone and only starts per-stream `app-server proxy` children.
     async fn ensure_codex_unix_running(&self) -> anyhow::Result<CodexUnixEndpoint> {
         let bin = {
@@ -637,12 +637,12 @@ impl AgentManager {
                     default_codex_control_socket_accepts_connections(&env).await
                 {
                     warn!(
-                        "codex default control socket accepts connections but proxy websocket handshake failed; using alleycat-owned socket default_socket={} error={error:#}",
+                        "codex default control socket accepts connections but proxy websocket handshake failed; using doggypile-owned socket default_socket={} error={error:#}",
                         socket_path.display()
                     );
                     CodexUnixEndpoint::custom_socket(
                         bin,
-                        alleycat_codex_control_socket_path(&socket_path),
+                        doggypile_codex_control_socket_path(&socket_path),
                     )
                 } else {
                     CodexUnixEndpoint::default_socket(bin)
@@ -661,7 +661,7 @@ impl AgentManager {
                         default_codex_control_socket_accepts_connections(&env).await
                 {
                     warn!(
-                        "codex default control socket accepts connections but proxy websocket handshake failed; using alleycat-owned socket default_socket={} error={error:#}",
+                        "codex default control socket accepts connections but proxy websocket handshake failed; using doggypile-owned socket default_socket={} error={error:#}",
                         socket_path.display()
                     );
                     drop(guard);
@@ -669,7 +669,7 @@ impl AgentManager {
                         .ensure_codex_unix_running_with_endpoint(
                             CodexUnixEndpoint::custom_socket(
                                 endpoint.bin,
-                                alleycat_codex_control_socket_path(&socket_path),
+                                doggypile_codex_control_socket_path(&socket_path),
                             ),
                             &env,
                         )
@@ -1366,11 +1366,11 @@ async fn default_codex_control_socket_accepts_connections(
     None
 }
 
-fn alleycat_codex_control_socket_path(default_socket_path: &Path) -> PathBuf {
+fn doggypile_codex_control_socket_path(default_socket_path: &Path) -> PathBuf {
     default_socket_path
         .parent()
-        .map(|parent| parent.join("alleycat-app-server-control.sock"))
-        .unwrap_or_else(|| default_socket_path.with_file_name("alleycat-app-server-control.sock"))
+        .map(|parent| parent.join("doggypile-app-server-control.sock"))
+        .unwrap_or_else(|| default_socket_path.with_file_name("doggypile-app-server-control.sock"))
 }
 
 #[cfg(unix)]
@@ -1542,7 +1542,7 @@ mod tests {
         let factory_dir = home.path().join(".factory");
         std::fs::create_dir_all(&factory_dir).unwrap();
 
-        let api_key_env = "ALLEYCAT_TEST_FACTORY_API_KEY_UNSET";
+        let api_key_env = "DOGGYPILE_TEST_FACTORY_API_KEY_UNSET";
         unsafe { std::env::remove_var(api_key_env) };
 
         assert!(!has_factory_auth(

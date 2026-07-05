@@ -67,329 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alleycat"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-amp-bridge",
- "alleycat-bridge-core",
- "alleycat-claude-bridge",
- "alleycat-devin-bridge",
- "alleycat-droid-bridge",
- "alleycat-grok-bridge",
- "alleycat-hermes-bridge",
- "alleycat-opencode-bridge",
- "alleycat-pi-bridge",
- "alleycat-shell-bridge",
- "anyhow",
- "arc-swap",
- "async-trait",
- "clap",
- "directories",
- "fd-lock",
- "futures",
- "hex",
- "hostname",
- "iroh",
- "libc",
- "mslnk",
- "qrcodegen",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "which",
-]
-
-[[package]]
-name = "alleycat-acp-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "futures",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-amp-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-claude-bridge",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-bridge-conformance"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "jsonschema",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "which",
-]
-
-[[package]]
-name = "alleycat-bridge-core"
-version = "0.1.0"
-dependencies = [
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "futures",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "alleycat-claude-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "futures",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-claude-remote-control"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "futures",
- "hostname",
- "pretty_assertions",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-codex-proto"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "alleycat-devin-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "rusqlite",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "alleycat-droid-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "chrono",
- "directories",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-grok-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "chrono",
- "rusqlite",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "alleycat-hermes-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "chrono",
- "directories",
- "futures",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "which",
-]
-
-[[package]]
-name = "alleycat-opencode-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "base64",
- "futures",
- "hex",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "alleycat-pi-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "futures",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-shell-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "base64",
- "portable-pty",
- "pretty_assertions",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1232,6 +909,329 @@ dependencies = [
  "libc",
  "once_cell",
  "winapi",
+]
+
+[[package]]
+name = "doggypile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "clap",
+ "directories",
+ "doggypile-acp-bridge",
+ "doggypile-amp-bridge",
+ "doggypile-bridge-core",
+ "doggypile-claude-bridge",
+ "doggypile-devin-bridge",
+ "doggypile-droid-bridge",
+ "doggypile-grok-bridge",
+ "doggypile-hermes-bridge",
+ "doggypile-opencode-bridge",
+ "doggypile-pi-bridge",
+ "doggypile-shell-bridge",
+ "fd-lock",
+ "futures",
+ "hex",
+ "hostname",
+ "iroh",
+ "libc",
+ "mslnk",
+ "qrcodegen",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "which",
+]
+
+[[package]]
+name = "doggypile-acp-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "futures",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-amp-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "doggypile-bridge-core",
+ "doggypile-claude-bridge",
+ "doggypile-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-bridge-conformance"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "jsonschema",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "which",
+]
+
+[[package]]
+name = "doggypile-bridge-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "doggypile-codex-proto",
+ "futures",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "doggypile-claude-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "futures",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-claude-remote-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "futures",
+ "hostname",
+ "pretty_assertions",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-codex-proto"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "doggypile-devin-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "doggypile-acp-bridge",
+ "doggypile-bridge-core",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "doggypile-droid-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "directories",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-grok-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "doggypile-acp-bridge",
+ "doggypile-bridge-core",
+ "rusqlite",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "doggypile-hermes-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "directories",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "futures",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "which",
+]
+
+[[package]]
+name = "doggypile-opencode-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "doggypile-bridge-core",
+ "futures",
+ "hex",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "doggypile-pi-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "doggypile-bridge-core",
+ "doggypile-codex-proto",
+ "futures",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "doggypile-shell-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "doggypile-bridge-core",
+ "portable-pty",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

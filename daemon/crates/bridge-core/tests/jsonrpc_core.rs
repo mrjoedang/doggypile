@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     Bridge, Conn, InboundMessage, JsonRpcError, JsonRpcMessage, JsonRpcNotification,
     JsonRpcRequest, JsonRpcVersion, RequestId,
     framing::{read_json_line, write_json_line},

@@ -21,10 +21,10 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_pi_bridge::codex_proto as p;
-use alleycat_pi_bridge::handlers;
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::state::{ConnectionState, ThreadDefaults};
+use doggypile_pi_bridge::codex_proto as p;
+use doggypile_pi_bridge::handlers;
+use doggypile_pi_bridge::pool::PiPool;
+use doggypile_pi_bridge::state::{ConnectionState, ThreadDefaults};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
@@ -267,7 +267,7 @@ fn assistant_message(text: &str, timestamp: i64) -> Value {
 /// `quiet_period` (200ms is plenty for the fake — pi events arrive in
 /// microseconds once the writer flushes).
 async fn drain_notifications(
-    mut notif_rx: mpsc::UnboundedReceiver<alleycat_bridge_core::session::Sequenced>,
+    mut notif_rx: mpsc::UnboundedReceiver<doggypile_bridge_core::session::Sequenced>,
     overall_timeout: Duration,
 ) -> Vec<(String, Value)> {
     let mut out = Vec::new();

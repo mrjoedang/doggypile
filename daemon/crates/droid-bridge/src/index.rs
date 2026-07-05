@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-pub use alleycat_bridge_core::{
+pub use doggypile_bridge_core::{
     IndexEntry as CoreIndexEntry, ListFilter, ListPage, ListSort, ThreadIndex as CoreThreadIndex,
 };
 
-pub const CLI_VERSION: &str = concat!("alleycat-droid-bridge/", env!("CARGO_PKG_VERSION"));
+pub const CLI_VERSION: &str = concat!("doggypile-droid-bridge/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +71,7 @@ impl Default for DroidHydrator {
 }
 
 #[async_trait]
-impl alleycat_bridge_core::Hydrator<DroidSessionRef> for DroidHydrator {
+impl doggypile_bridge_core::Hydrator<DroidSessionRef> for DroidHydrator {
     async fn scan(&self) -> Result<Vec<IndexEntry>> {
         Ok(self
             .scan_sessions()
@@ -212,7 +212,7 @@ pub fn thread_from_entry(entry: &IndexEntry) -> p::Thread {
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: doggypile_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -876,7 +876,7 @@ fn push_turn(
     turns.push(p::Turn {
         id: format!("turn_{}", turns.len()),
         items: std::mem::take(current_items),
-        items_view: alleycat_codex_proto::default_items_view(),
+        items_view: doggypile_codex_proto::default_items_view(),
         status: p::TurnStatus::Completed,
         error: None,
         started_at: current_started_at.take(),

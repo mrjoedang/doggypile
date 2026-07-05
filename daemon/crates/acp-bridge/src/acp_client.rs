@@ -35,7 +35,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use alleycat_bridge_core::{ChildProcess, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
+use doggypile_bridge_core::{ChildProcess, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
 use anyhow::Result;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -110,7 +110,7 @@ impl Inner {
 /// ACP client that communicates with an ACP agent over stdio.
 pub struct AcpClient {
     process: Arc<Mutex<Box<dyn ChildProcess>>>,
-    stdin: Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: Arc<Mutex<doggypile_bridge_core::ChildStdin>>,
     inner: Arc<Inner>,
     /// Serializes outstanding requests. ACP notifications aren't tagged
     /// with which in-flight request they belong to, so we deliberately
@@ -341,9 +341,9 @@ impl AcpClient {
 /// Background loop: read newline-delimited JSON frames from the agent
 /// and dispatch each one through `Inner`.
 async fn reader_task(
-    mut reader: BufReader<alleycat_bridge_core::ChildStdout>,
+    mut reader: BufReader<doggypile_bridge_core::ChildStdout>,
     inner: Arc<Inner>,
-    stdin: Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: Arc<Mutex<doggypile_bridge_core::ChildStdin>>,
 ) {
     loop {
         let mut line = String::new();
@@ -401,7 +401,7 @@ struct TerminalRecord {
 
 async fn respond_to_agent_request(
     inner: &Arc<Inner>,
-    stdin: &Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: &Arc<Mutex<doggypile_bridge_core::ChildStdin>>,
     frame: Value,
 ) {
     let id = frame.get("id").cloned().unwrap_or(Value::Null);

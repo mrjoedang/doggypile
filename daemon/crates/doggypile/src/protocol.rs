@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const ALLEYCAT_ALPN: &[u8] = b"alleycat/1";
+pub const DOGGYPILE_ALPN: &[u8] = b"doggypile/1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PairPayload {
@@ -38,7 +38,7 @@ pub struct AgentInfo {
     pub display_name: String,
     pub wire: AgentWire,
     pub available: bool,
-    /// UI-facing presentation hints. Optional so older alleycat daemons
+    /// UI-facing presentation hints. Optional so older doggypile daemons
     /// continue to round-trip without this field; new clients render
     /// generic fallbacks when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,7 +85,7 @@ pub struct AgentCapabilities {
     #[serde(default)]
     pub supports_ssh_bridge: bool,
     /// Codex-only: the agent speaks the `codex app-server` wire and can
-    /// be dialed directly on its TCP port without going through Alleycat.
+    /// be dialed directly on its TCP port without going through Doggypile.
     #[serde(default)]
     pub uses_direct_codex_port: bool,
     /// Whether a client may send per-thread approval/sandbox overrides and
@@ -126,12 +126,12 @@ pub enum AttachKind {
     DriftReload,
 }
 
-impl From<alleycat_bridge_core::session::AttachKind> for AttachKind {
-    fn from(value: alleycat_bridge_core::session::AttachKind) -> Self {
+impl From<doggypile_bridge_core::session::AttachKind> for AttachKind {
+    fn from(value: doggypile_bridge_core::session::AttachKind) -> Self {
         match value {
-            alleycat_bridge_core::session::AttachKind::Fresh => Self::Fresh,
-            alleycat_bridge_core::session::AttachKind::Resumed => Self::Resumed,
-            alleycat_bridge_core::session::AttachKind::DriftReload => Self::DriftReload,
+            doggypile_bridge_core::session::AttachKind::Fresh => Self::Fresh,
+            doggypile_bridge_core::session::AttachKind::Resumed => Self::Resumed,
+            doggypile_bridge_core::session::AttachKind::DriftReload => Self::DriftReload,
         }
     }
 }

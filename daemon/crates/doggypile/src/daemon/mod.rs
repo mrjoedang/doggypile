@@ -1,4 +1,4 @@
-//! Long-running daemon process for `alleycat serve`.
+//! Long-running daemon process for `doggypile serve`.
 //!
 //! Owns the single-instance file lock, the persistent iroh secret + token,
 //! the iroh endpoint serving agent streams, and the IPC control listener
@@ -28,7 +28,7 @@ use crate::state;
 
 use self::control::{Request, Response, RotateResult, StatusInfo, token_fingerprint};
 
-/// Entry point for `alleycat serve`. Initializes file logging, acquires the
+/// Entry point for `doggypile serve`. Initializes file logging, acquires the
 /// single-instance lock, binds the iroh endpoint + control IPC, and runs
 /// until SIGTERM / SIGINT / control `Stop`.
 pub async fn run() -> anyhow::Result<()> {

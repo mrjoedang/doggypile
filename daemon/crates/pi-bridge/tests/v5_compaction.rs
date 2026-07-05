@@ -18,10 +18,10 @@ mod support;
 
 use std::time::Duration;
 
-use alleycat_pi_bridge::codex_proto::{ServerNotification, ThreadItem};
-use alleycat_pi_bridge::pool::pi_protocol::{CompactCmd, PiEvent, RpcCommand};
-use alleycat_pi_bridge::pool::process::PiProcessHandle;
-use alleycat_pi_bridge::translate::events::EventTranslatorState;
+use doggypile_pi_bridge::codex_proto::{ServerNotification, ThreadItem};
+use doggypile_pi_bridge::pool::pi_protocol::{CompactCmd, PiEvent, RpcCommand};
+use doggypile_pi_bridge::pool::process::PiProcessHandle;
+use doggypile_pi_bridge::translate::events::EventTranslatorState;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

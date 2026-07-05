@@ -4,8 +4,8 @@
 //! Encoded-cwd convention (per the live wire `system/init.cwd` matching what
 //! claude writes on disk): the cwd is mangled into a directory name by
 //! replacing `/` with `-` and dropping the leading separator. For example,
-//! cwd `/Users/sigkitten/dev/alleycat` becomes
-//! `-Users-sigkitten-dev-alleycat`.
+//! cwd `/Users/sigkitten/dev/doggypile` becomes
+//! `-Users-sigkitten-dev-doggypile`.
 //!
 //! Each `<session_id>.jsonl` is tolerated permissively: we read the first
 //! `user` record's text content for `first_message`, and use file `created`

@@ -30,8 +30,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_acp_bridge::AcpBridge;
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError, ProcessLauncher, error_codes};
+use doggypile_acp_bridge::AcpBridge;
+use doggypile_bridge_core::{Bridge, Conn, JsonRpcError, ProcessLauncher, error_codes};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use rusqlite::Connection;

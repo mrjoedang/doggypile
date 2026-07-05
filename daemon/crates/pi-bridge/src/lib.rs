@@ -1,4 +1,4 @@
-//! `alleycat-pi-bridge` — codex app-server façade over `pi-coding-agent`.
+//! `doggypile-pi-bridge` — codex app-server façade over `pi-coding-agent`.
 //!
 //! Public surface:
 //! - [`PiBridge`] / [`PiBridgeBuilder`] — the unified entry point implementing

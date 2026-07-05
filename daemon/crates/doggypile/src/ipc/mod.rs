@@ -98,7 +98,7 @@ mod tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         p.push(format!(
-            "alleycat-ipc-{label}-{}-{}.sock",
+            "doggypile-ipc-{label}-{}-{}.sock",
             std::process::id(),
             stamp
         ));

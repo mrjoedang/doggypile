@@ -52,12 +52,12 @@ fn scenario_lock() -> &'static AsyncMutex<()> {
     LOCK.get_or_init(|| AsyncMutex::new(()))
 }
 
-use alleycat_pi_bridge::approval;
-use alleycat_pi_bridge::codex_proto as p;
-use alleycat_pi_bridge::handlers::turn::handle_turn_start;
-use alleycat_pi_bridge::index::{IndexEntry, ThreadIndex};
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
+use doggypile_pi_bridge::approval;
+use doggypile_pi_bridge::codex_proto as p;
+use doggypile_pi_bridge::handlers::turn::handle_turn_start;
+use doggypile_pi_bridge::index::{IndexEntry, ThreadIndex};
+use doggypile_pi_bridge::pool::PiPool;
+use doggypile_pi_bridge::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -141,7 +141,7 @@ async fn run_approval_scenario(decision: Value) -> ApprovalScenario {
             forked_from_id: None,
             model_provider: "fake".into(),
             source: p::ThreadSourceKind::AppServer,
-            metadata: alleycat_pi_bridge::PiSessionRef {
+            metadata: doggypile_pi_bridge::PiSessionRef {
                 pi_session_path: cwd.path().join("session.jsonl"),
                 pi_session_id: "pi-session-1".into(),
             },

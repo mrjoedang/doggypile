@@ -1,5 +1,4 @@
-//! Alleycat daemon library entry point. Binary crates (this repo's `alleycat`
-//! and the `kittylitter` distribution wrapper in the litter repo) call
+//! doggypile daemon library entry point. The `doggypile` binary calls
 //! [`run`] with their CLI display name.
 
 mod agent_manifest;
@@ -24,10 +23,8 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 /// Branding + OS-identity supplied by the binary that drives this library.
-/// The shipped `kittylitter` wrapper passes `com.sigkitten.kittylitter`
-/// values; this crate's own dev `alleycat` binary passes alleycat-style
-/// defaults. Tests fall through to [`App::DEFAULT`] so existing assertions
-/// keep working.
+/// Defaults to doggypile's CLI display name and OS identity. Tests fall
+/// through to [`App::DEFAULT`] so existing assertions keep working.
 #[derive(Clone, Copy, Debug)]
 pub struct App {
     /// Argv[0]-style program name. Surfaced in `--help` output and in
@@ -43,9 +40,9 @@ pub struct App {
     /// names, systemd unit, Windows .lnk, etc.
     pub application: &'static str,
     /// Reverse-DNS label used as the launchd Label, the plist filename
-    /// stem, and `service::service_label()` (e.g. `com.sigkitten.kittylitter`).
+    /// stem, and `service::service_label()` (e.g. `dev.doggypile.doggypile`).
     pub label: &'static str,
-    /// SemVer of the *binary* (the wrapper crate, e.g. `kittylitter` 0.2.1),
+    /// SemVer of the *binary* (e.g. `doggypile` 0.2.1),
     /// not of this library. Reported by the daemon over IPC so a freshly
     /// installed CLI can detect a stale long-running daemon and respawn
     /// itself transparently. Binaries should pass `env!("CARGO_PKG_VERSION")`.
@@ -53,9 +50,7 @@ pub struct App {
 }
 
 impl App {
-    /// Defaults the library reverts to when no `App` has been registered —
-    /// preserves the original alleycat-style identity so tests + dev
-    /// invocations of bare `cargo run -p alleycat` Just Work.
+    /// Defaults the library reverts to when no `App` has been registered.
     pub const DEFAULT: App = App {
         binary_name: "doggypile",
         qualifier: "dev",
@@ -84,8 +79,7 @@ pub(crate) fn app() -> &'static App {
 }
 
 /// Name the user invoked the binary with. Threaded into user-facing CLI
-/// strings so error/help messages reference the right command (`kittylitter`
-/// in shipped builds, `alleycat` in dev).
+/// strings so error/help messages reference the right command.
 pub fn binary_name() -> &'static str {
     app().binary_name
 }
@@ -138,9 +132,9 @@ enum Command {
     /// Connect to the daemon over iroh like a phone client and run JSON-RPC
     /// methods directly. Defaults to invoking `thread/list` on the chosen agent.
     Probe(cli::probe::ProbeArgs),
-    /// Restart any running daemon onto the version of *this* binary. Designed
-    /// for `npx <wrapper>@latest upgrade` — npm fetches the new tarball, then
-    /// this subcommand bounces a stale daemon onto it.
+    /// Serve the embedded doggypile PWA from this binary.
+    Web(cli::web::WebArgs),
+    /// Restart any running daemon onto the version of *this* binary.
     Upgrade,
 }
 
@@ -203,6 +197,10 @@ async fn async_main() -> anyhow::Result<()> {
             init_cli_logging();
             cli::probe::run(args).await
         }
+        Some(Command::Web(args)) => {
+            init_cli_logging();
+            cli::web::run(args).await
+        }
         Some(Command::Upgrade) => {
             init_cli_logging();
             cli::upgrade::run().await
@@ -213,7 +211,7 @@ async fn async_main() -> anyhow::Result<()> {
 fn init_cli_logging() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("warn,alleycat=info,iroh=error,noq=error,noq_udp=error,quinn=error")
+            EnvFilter::new("warn,doggypile=info,iroh=error,noq=error,noq_udp=error,quinn=error")
         }))
         .with_writer(std::io::stderr)
         .try_init();

@@ -86,7 +86,25 @@ export function createProjection() {
 }
 
 function textOf(content) {
-  return (content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
+  return (content || [])
+    .filter((c) => c.type === 'text')
+    .map(textInputOf)
+    .join('');
+}
+
+function textInputOf(input) {
+  let text = input.text || '';
+  const spans = (input.text_elements || input.textElements || [])
+    .filter((e) => e.placeholder && e.byte_range)
+    .sort((a, b) => b.byte_range.start - a.byte_range.start);
+  for (const el of spans) {
+    const { start, end } = el.byte_range;
+    text = text.slice(0, start) + el.placeholder + text.slice(end);
+  }
+  // Codex can encode rich UI placeholders in the plain text fallback, e.g.
+  // ::inbox-item{title="Waiting for task details"}. This PWA doesn't render
+  // those widgets yet, so show the title instead of the raw marker syntax.
+  return text.replace(/::[\w-]+\{title="([^"]+)"[^}]*\}/g, '$1');
 }
 
 function summarizeFileChange(it) {

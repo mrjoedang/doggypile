@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex,
     encode_backwards_cursor, error_codes, resolve_list_limit,
 };
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::Engine;
@@ -27,7 +27,7 @@ use crate::state::{ConnectionState, ThreadDefaults};
 const DEFAULT_AMP_BIN: &str = "amp";
 const MODEL_PROVIDER: &str = "amp";
 const DEFAULT_MODEL: &str = "smart";
-const USER_AGENT: &str = concat!("alleycat-amp-bridge/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("doggypile-amp-bridge/", env!("CARGO_PKG_VERSION"));
 
 pub type ThreadIndex = CoreThreadIndex<AmpSessionRef>;
 type ActiveTurns = Arc<Mutex<HashMap<String, ActiveTurn>>>;

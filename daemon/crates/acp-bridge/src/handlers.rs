@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use alleycat_bridge_core::{JsonRpcError, error_codes};
-use alleycat_codex_proto as p;
+use doggypile_bridge_core::{JsonRpcError, error_codes};
+use doggypile_codex_proto as p;
 use serde_json::{Value, json};
 use tracing::{info, instrument};
 
@@ -314,7 +314,7 @@ pub fn handle_skills_list(
 
 /// Handle thread/start request.
 pub async fn handle_thread_start(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -496,7 +496,7 @@ fn timestamp_ms(value: Option<&Value>) -> i64 {
 /// priority over the agent's replay so we don't lose work-in-progress
 /// state to a stale agent-side snapshot.
 pub async fn handle_thread_resume(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -914,7 +914,7 @@ fn build_turns_from_replay(notifications: &[Value]) -> Vec<crate::bridge::Stored
 /// original order with the same item ids that `turn/start` broadcast live,
 /// so iOS reconciliation between cached + refreshed views is a no-op.
 pub async fn handle_thread_read(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     _client: &Arc<AcpClient>,
     params: Value,
@@ -963,7 +963,7 @@ pub async fn handle_thread_read(
 
 /// Handle thread/name/set request.
 pub fn handle_thread_name_set(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     params: p::ThreadSetNameParams,
 ) -> p::ThreadSetNameResponse {
@@ -997,7 +997,7 @@ pub fn handle_thread_name_set(
 ///      the same items + ids.
 #[instrument(skip(ctx, bridge, client, params), fields(thread_id))]
 pub async fn handle_turn_start(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -1295,7 +1295,7 @@ pub async fn handle_turn_start(
 /// flows through `session/update` → `tool_call`, which the translator
 /// already renders as `commandExecution` ThreadItems.
 pub async fn handle_command_exec(
-    _ctx: &alleycat_bridge_core::Conn,
+    _ctx: &doggypile_bridge_core::Conn,
     _bridge: &crate::bridge::AcpBridge,
     _client: &Arc<AcpClient>,
     _params: Value,
@@ -1312,7 +1312,7 @@ pub async fn handle_command_exec(
 
 /// Handle thread/fork request.
 pub async fn handle_thread_fork(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &doggypile_bridge_core::Conn,
     client: &Arc<AcpClient>,
     params: Value,
 ) -> Result<Value, JsonRpcError> {

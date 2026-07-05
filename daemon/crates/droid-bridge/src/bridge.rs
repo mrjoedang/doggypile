@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use alleycat_bridge_core::{
+use doggypile_bridge_core::{
     Bridge, ChildProcess, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, ProcessRole,
     ProcessSpec, StdioMode, error_codes,
 };
-use alleycat_codex_proto as p;
+use doggypile_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -24,7 +24,7 @@ use crate::translate::{CompletedTurn, DroidTurnTranslator};
 const DEFAULT_DROID_BIN: &str = "droid";
 const MODEL_PROVIDER: &str = "droid";
 const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250929";
-const USER_AGENT: &str = concat!("alleycat-droid-bridge/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("doggypile-droid-bridge/", env!("CARGO_PKG_VERSION"));
 const DEFAULT_OUTPUT_BYTES_CAP: usize = 256 * 1024;
 const DEFAULT_TIMEOUT_MS: i64 = 60_000;
 
@@ -625,7 +625,7 @@ impl DroidBridge {
             key: params.sort_key.unwrap_or(p::ThreadSortKey::CreatedAt),
             direction: params.sort_direction.unwrap_or(p::SortDirection::Desc),
         };
-        let limit = alleycat_bridge_core::resolve_list_limit(params.limit);
+        let limit = doggypile_bridge_core::resolve_list_limit(params.limit);
         let page = self
             .thread_index
             .list(&filter, sort, params.cursor.as_deref(), Some(limit))
@@ -634,7 +634,7 @@ impl DroidBridge {
         let backwards_cursor = page
             .data
             .first()
-            .map(|entry| alleycat_bridge_core::encode_backwards_cursor(entry, sort));
+            .map(|entry| doggypile_bridge_core::encode_backwards_cursor(entry, sort));
         let loaded = self
             .processes
             .lock()
@@ -937,7 +937,7 @@ impl DroidBridge {
                 json!({
                     "sessionId": thread_id,
                     "cwd": cwd.to_string_lossy(),
-                    "machineId": "alleycat-droid-bridge",
+                    "machineId": "doggypile-droid-bridge",
                     "autonomyLevel": auto_level,
                     "modelId": model,
                 }),
@@ -1385,7 +1385,7 @@ async fn wait_child(
     }
 }
 
-async fn read_capped(mut stream: alleycat_bridge_core::ChildStdout, cap: usize) -> Vec<u8> {
+async fn read_capped(mut stream: doggypile_bridge_core::ChildStdout, cap: usize) -> Vec<u8> {
     let mut out = Vec::new();
     let _ = read_capped_inner(&mut stream, &mut out, cap).await;
     out

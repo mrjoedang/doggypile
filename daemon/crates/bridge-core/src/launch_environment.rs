@@ -1,6 +1,6 @@
 //! User launch environment resolution.
 //!
-//! Alleycat is often started by launchd/systemd, but users expect spawned
+//! Doggypile is often started by launchd/systemd, but users expect spawned
 //! agents to behave as if they were launched from their normal terminal in the
 //! target project. This module centralises that policy so every bridge-managed
 //! process gets the same treatment instead of each agent growing bespoke shell
@@ -25,7 +25,7 @@ type EnvMap = HashMap<OsString, OsString>;
 const DEFAULT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(8);
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(30);
 
-/// Controls how Alleycat reconstructs the user's terminal-like environment for
+/// Controls how Doggypile reconstructs the user's terminal-like environment for
 /// child processes.
 #[derive(Debug, Clone)]
 pub struct LaunchEnvironmentPolicy {

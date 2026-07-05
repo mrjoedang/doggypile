@@ -1,6 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use iroh::endpoint::QuicTransportConfig;
@@ -13,7 +13,7 @@ use crate::agents::AgentManager;
 use crate::config;
 use crate::config::HostConfig;
 use crate::framing::{read_json_frame, write_json_frame};
-use crate::protocol::{ALLEYCAT_ALPN, PROTOCOL_VERSION, Request, Response, Resume, SessionInfo};
+use crate::protocol::{DOGGYPILE_ALPN, PROTOCOL_VERSION, Request, Response, Resume, SessionInfo};
 use crate::stream::IrohStream;
 
 #[derive(Debug, Default)]
@@ -21,10 +21,21 @@ pub struct PairingAuth {
     tokens: Mutex<PairingTokens>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PairingTokens {
     pending: HashSet<String>,
     paired: HashSet<String>,
+    pairing_grace: HashMap<String, Instant>,
+}
+
+impl Default for PairingTokens {
+    fn default() -> Self {
+        Self {
+            pending: HashSet::new(),
+            paired: HashSet::new(),
+            pairing_grace: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,11 +55,14 @@ impl PairingAuth {
         let mut tokens = self.tokens.lock().unwrap();
         tokens.pending.clear();
         tokens.paired.clear();
+        tokens.pairing_grace.clear();
     }
 
     fn authorize(&self, token: &str) -> Result<AuthOutcome, String> {
         let mut tokens = self.tokens.lock().unwrap();
-        if tokens.paired.contains(token) {
+        let now = Instant::now();
+        tokens.pairing_grace.retain(|_, expires| *expires > now);
+        if tokens.paired.contains(token) || tokens.pairing_grace.contains_key(token) {
             return Ok(AuthOutcome {
                 replacement_token: None,
             });
@@ -56,6 +70,13 @@ impl PairingAuth {
         if tokens.pending.remove(token) {
             let replacement_token = config::random_token();
             tokens.paired.insert(replacement_token.clone());
+            // Mobile browsers/PWAs can race a visible open with a pre-existing
+            // tab or retry during first load. Keep the freshly-used pairing
+            // token alive briefly so that duplicate first connects don't strand
+            // the user on an immediate "pairing expired" screen.
+            tokens
+                .pairing_grace
+                .insert(token.to_string(), now + Duration::from_secs(60));
             return Ok(AuthOutcome {
                 replacement_token: Some(replacement_token),
             });
@@ -85,22 +106,22 @@ pub async fn bind_endpoint(secret_key: SecretKey) -> anyhow::Result<Endpoint> {
 
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret_key)
-        .alpns(vec![ALLEYCAT_ALPN.to_vec()])
+        .alpns(vec![DOGGYPILE_ALPN.to_vec()])
         .transport_config(transport)
         .bind()
         .await
         .context("binding iroh endpoint")?;
 
-    info!(node_id = %endpoint.id(), "alleycat endpoint bound");
+    info!(node_id = %endpoint.id(), "doggypile endpoint bound");
     let endpoint_for_online = endpoint.clone();
     tokio::spawn(async move {
         if tokio::time::timeout(Duration::from_secs(8), endpoint_for_online.online())
             .await
             .is_ok()
         {
-            info!(addr = ?endpoint_for_online.addr(), "alleycat endpoint online");
+            info!(addr = ?endpoint_for_online.addr(), "doggypile endpoint online");
         } else {
-            warn!("alleycat endpoint did not report relay connectivity within timeout");
+            warn!("doggypile endpoint did not report relay connectivity within timeout");
         }
     });
 
@@ -154,13 +175,13 @@ pub async fn accept_loop(
                                     )
                                     .await
                                     {
-                                        info!(conn = conn_id, "alleycat stream ended: {error:#}");
+                                        info!(conn = conn_id, "doggypile stream ended: {error:#}");
                                     }
                                 });
                             }
                             info!(conn = conn_id, "iroh connection closed");
                         }
-                        Err(error) => warn!("alleycat incoming connection failed: {error:#}"),
+                        Err(error) => warn!("doggypile incoming connection failed: {error:#}"),
                     }
                 });
             }
@@ -273,7 +294,7 @@ async fn handle_stream(
             // For Fresh and DriftReload paths it returned None, so the
             // dispatcher sees an empty backlog.
             let dispatch_last_seen = match resolved.kind {
-                alleycat_bridge_core::session::AttachKind::Resumed => resolved.effective_last_seen,
+                doggypile_bridge_core::session::AttachKind::Resumed => resolved.effective_last_seen,
                 _ => None,
             };
             let result = agents
@@ -402,14 +423,25 @@ mod tests {
         let reconnect = first.replacement_token.expect("replacement token");
 
         assert_eq!(
-            auth.authorize(&pairing).unwrap_err(),
-            "invalid or already-used token"
+            auth.authorize(&pairing).unwrap(),
+            AuthOutcome {
+                replacement_token: None
+            }
         );
         assert_eq!(
             auth.authorize(&reconnect).unwrap(),
             AuthOutcome {
                 replacement_token: None
             }
+        );
+        auth.tokens
+            .lock()
+            .unwrap()
+            .pairing_grace
+            .insert(pairing.clone(), Instant::now() - Duration::from_secs(1));
+        assert_eq!(
+            auth.authorize(&pairing).unwrap_err(),
+            "invalid or already-used token"
         );
     }
 }

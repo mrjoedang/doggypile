@@ -9,8 +9,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::session::{AttachKind, Session, SessionRegistry, SessionRegistryConfig};
-use alleycat_bridge_core::state::ServerRequestError;
+use doggypile_bridge_core::session::{AttachKind, Session, SessionRegistry, SessionRegistryConfig};
+use doggypile_bridge_core::state::ServerRequestError;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
@@ -86,8 +86,8 @@ async fn drift_when_cursor_predates_ring_floor() {
 
     let b = session.install_attachment(Some(0));
     assert!(matches!(
-        alleycat_bridge_core::session::AttachOutcome::DriftReload,
-        _outcome if matches!(b.outcome, alleycat_bridge_core::session::AttachOutcome::DriftReload)
+        doggypile_bridge_core::session::AttachOutcome::DriftReload,
+        _outcome if matches!(b.outcome, doggypile_bridge_core::session::AttachOutcome::DriftReload)
     ));
     assert!(b.backlog.is_empty());
 }
@@ -275,12 +275,12 @@ async fn auto_resume_picks_drift_when_buffer_overflowed() {
 }
 
 #[tokio::test]
-async fn enqueue_stamps_alleycat_seq_on_object_payloads() {
+async fn enqueue_stamps_doggypile_seq_on_object_payloads() {
     let session = Arc::new(Session::new("pi", "node-A".into(), 16, 1 << 20));
     let mut handle = session.install_attachment(None);
     let seq = session.enqueue(notif("turn/started"));
     let received = handle.live_rx.recv().await.unwrap();
-    assert_eq!(received.payload["_alleycat_seq"], seq);
+    assert_eq!(received.payload["_doggypile_seq"], seq);
     assert_eq!(received.payload["method"], "turn/started");
 }
 

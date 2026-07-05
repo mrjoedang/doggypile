@@ -2,7 +2,7 @@
 //! local impl — bridge crates are responsible for testing their own
 //! launcher-driven spawn paths.
 
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
+use doggypile_bridge_core::{LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
 use std::ffi::OsString;
 use tokio::io::AsyncReadExt;
 

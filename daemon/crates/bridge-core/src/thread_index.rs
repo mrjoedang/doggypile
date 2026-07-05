@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_codex_proto::{SortDirection, ThreadSortKey, ThreadSourceKind};
+use doggypile_codex_proto::{SortDirection, ThreadSortKey, ThreadSourceKind};
 use anyhow::{Context, Result};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

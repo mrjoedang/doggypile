@@ -1,5 +1,5 @@
 [package]
-name = "alleycat"
+name = "doggypile"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,35 +7,33 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) onto a single QUIC connection for paired clients."
-# Distribution happens via the `kittylitter` wrapper crate in the litter
-# repo; this crate is consumed only as a git dep.
+description = "Single-binary daemon and embedded PWA for chatting with Codex from your phone over iroh."
 publish = false
 
 [lib]
-name = "alleycat"
+name = "doggypile"
 path = "src/lib.rs"
 
 [[bin]]
-name = "alleycat"
+name = "doggypile"
 path = "src/main.rs"
 
 [[bin]]
-name = "alleycat-startup"
-path = "src/bin/alleycat-startup.rs"
+name = "doggypile-startup"
+path = "src/bin/doggypile-startup.rs"
 
 [dependencies]
-alleycat-acp-bridge = { workspace = true }
-alleycat-amp-bridge = { workspace = true }
-alleycat-bridge-core = { workspace = true }
-alleycat-claude-bridge = { workspace = true }
-alleycat-devin-bridge = { workspace = true }
-alleycat-grok-bridge = { workspace = true }
-alleycat-droid-bridge = { workspace = true }
-alleycat-hermes-bridge = { workspace = true }
-alleycat-opencode-bridge = { workspace = true }
-alleycat-pi-bridge = { workspace = true }
-alleycat-shell-bridge = { workspace = true }
+doggypile-acp-bridge = { workspace = true }
+doggypile-amp-bridge = { workspace = true }
+doggypile-bridge-core = { workspace = true }
+doggypile-claude-bridge = { workspace = true }
+doggypile-devin-bridge = { workspace = true }
+doggypile-grok-bridge = { workspace = true }
+doggypile-droid-bridge = { workspace = true }
+doggypile-hermes-bridge = { workspace = true }
+doggypile-opencode-bridge = { workspace = true }
+doggypile-pi-bridge = { workspace = true }
+doggypile-shell-bridge = { workspace = true }
 anyhow.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true

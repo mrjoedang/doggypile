@@ -1,1 +1,1 @@
-pub use alleycat_codex_proto::*;
+pub use doggypile_codex_proto::*;

@@ -1,4 +1,4 @@
-//! `alleycat-shell-bridge` — JSON-RPC shell sessions over PTY-backed child
+//! `doggypile-shell-bridge` — JSON-RPC shell sessions over PTY-backed child
 //! processes.
 
 pub mod bridge;

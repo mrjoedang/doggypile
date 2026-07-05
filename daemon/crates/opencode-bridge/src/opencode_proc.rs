@@ -5,7 +5,7 @@ use std::process::Command as StdCommand;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use alleycat_bridge_core::{LaunchEnvironment, LaunchEnvironmentResolver};
+use doggypile_bridge_core::{LaunchEnvironment, LaunchEnvironmentResolver};
 use rand::RngCore;
 use tokio::process::{Child, Command as TokioCommand};
 

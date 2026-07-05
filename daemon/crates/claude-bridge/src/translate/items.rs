@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::fs;
 
-use alleycat_codex_proto::{
+use doggypile_codex_proto::{
     CollabAgentState, CollabAgentStatus, CollabAgentTool, CollabAgentToolCallStatus,
     CommandExecutionStatus, DynamicToolCallStatus, McpToolCallError, McpToolCallResult,
     McpToolCallStatus, PatchApplyStatus, ThreadItem, Turn, TurnStatus, UserInput,
@@ -238,7 +238,7 @@ impl TurnBuilder {
         self.turns.push(Turn {
             id: format!("turn_{}", self.turns.len()),
             items: std::mem::take(&mut self.current_items),
-            items_view: alleycat_codex_proto::default_items_view(),
+            items_view: doggypile_codex_proto::default_items_view(),
             status: TurnStatus::Completed,
             error: None,
             started_at: self.current_started_at.take(),

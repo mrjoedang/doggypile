@@ -3,11 +3,11 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use alleycat_bridge_core::framing::{read_json_line, write_json_line};
-use alleycat_bridge_core::server::serve_stream;
-use alleycat_bridge_core::{JsonRpcRequest, JsonRpcVersion, RequestId};
-use alleycat_opencode_bridge::OpencodeBridge;
-use alleycat_opencode_bridge::opencode_proc::OpencodeRuntime;
+use doggypile_bridge_core::framing::{read_json_line, write_json_line};
+use doggypile_bridge_core::server::serve_stream;
+use doggypile_bridge_core::{JsonRpcRequest, JsonRpcVersion, RequestId};
+use doggypile_opencode_bridge::OpencodeBridge;
+use doggypile_opencode_bridge::opencode_proc::OpencodeRuntime;
 use serde_json::{Value, json};
 use tokio::io::BufReader;
 
@@ -40,7 +40,7 @@ async fn initialize_thread_start_turn_start_smoke() {
     let init = read_until_response(&mut read, 1).await;
     assert_eq!(
         init["result"]["userAgent"],
-        "alleycat-opencode-bridge/0.1.0"
+        "doggypile-opencode-bridge/0.1.0"
     );
 
     send(

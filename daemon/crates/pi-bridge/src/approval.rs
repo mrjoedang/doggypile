@@ -368,7 +368,7 @@ mod tests {
 
     fn dummy_state() -> (
         Arc<ConnectionState>,
-        mpsc::UnboundedReceiver<alleycat_bridge_core::session::Sequenced>,
+        mpsc::UnboundedReceiver<doggypile_bridge_core::session::Sequenced>,
     ) {
         ConnectionState::for_test(
             Arc::new(crate::pool::PiPool::new("/dev/null")),

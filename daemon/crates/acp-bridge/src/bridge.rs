@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::server::{Bridge, Conn};
-use alleycat_bridge_core::{JsonRpcError, LocalLauncher, ProcessLauncher, error_codes};
-use alleycat_codex_proto as p;
+use doggypile_bridge_core::server::{Bridge, Conn};
+use doggypile_bridge_core::{JsonRpcError, LocalLauncher, ProcessLauncher, error_codes};
+use doggypile_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -617,8 +617,8 @@ impl AcpBridgeBuilder {
         let persistence = if self.enable_persistence {
             let state_dir = state_dir_for_persistence.unwrap_or_else(|| {
                 std::env::var("HOME")
-                    .map(|home| PathBuf::from(home).join(".alleycat-acp-bridge"))
-                    .unwrap_or_else(|_| PathBuf::from("/tmp/alleycat-acp-bridge"))
+                    .map(|home| PathBuf::from(home).join(".doggypile-acp-bridge"))
+                    .unwrap_or_else(|_| PathBuf::from("/tmp/doggypile-acp-bridge"))
             });
 
             match SessionPersistence::new(state_dir) {

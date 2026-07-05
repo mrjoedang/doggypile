@@ -47,5 +47,5 @@ fn invalid_input(message: &'static str) -> std::io::Error {
 
 #[cfg(not(target_os = "windows"))]
 fn run() -> Result<(), &'static str> {
-    Err("alleycat-startup is only used by Windows autostart")
+    Err("doggypile-startup is only used by Windows autostart")
 }

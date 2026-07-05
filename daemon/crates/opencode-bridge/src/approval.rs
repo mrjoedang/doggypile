@@ -15,8 +15,8 @@
 
 use std::time::Duration;
 
-use alleycat_bridge_core::NotificationSender;
-use alleycat_bridge_core::state::ServerRequestError;
+use doggypile_bridge_core::NotificationSender;
+use doggypile_bridge_core::state::ServerRequestError;
 use serde_json::Value;
 use thiserror::Error;
 

@@ -1,5 +1,5 @@
 //! Windows Startup-folder install. Writes a `.lnk` to
-//! `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\alleycat.lnk`
+//! `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\doggypile.lnk`
 //! using the `mslnk` crate (pure-Rust, no COM, no admin).
 //!
 //! When a `<binary>-startup.exe` sidecar is installed next to the CLI binary,
@@ -89,7 +89,7 @@ mod tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         path.push(format!(
-            "alleycat-svc-windows-{}-{stamp}",
+            "doggypile-svc-windows-{}-{stamp}",
             std::process::id()
         ));
         std::fs::create_dir_all(&path).expect("temp dir");
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn write_startup_lnk_creates_file() {
         let tmp = tempdir();
-        let lnk = tmp.join("alleycat.lnk");
+        let lnk = tmp.join("doggypile.lnk");
         let exe = std::env::current_exe().expect("current_exe");
         write_startup_lnk(&lnk, &exe).expect("write_startup_lnk");
         assert!(lnk.exists());
@@ -111,8 +111,8 @@ mod tests {
     #[test]
     fn startup_link_prefers_windowless_launcher_when_present() {
         let tmp = tempdir();
-        let exe = tmp.join("alleycat.exe");
-        let launcher = tmp.join("alleycat-startup.exe");
+        let exe = tmp.join("doggypile.exe");
+        let launcher = tmp.join("doggypile-startup.exe");
         std::fs::write(&exe, b"exe").expect("write exe");
         std::fs::write(&launcher, b"launcher").expect("write launcher");
 
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn startup_link_falls_back_to_cli_when_launcher_is_absent() {
         let tmp = tempdir();
-        let exe = tmp.join("alleycat.exe");
+        let exe = tmp.join("doggypile.exe");
         std::fs::write(&exe, b"exe").expect("write exe");
 
         assert_eq!(

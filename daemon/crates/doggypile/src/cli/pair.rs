@@ -15,7 +15,7 @@ pub struct PairArgs {
     #[arg(long, conflicts_with = "qr")]
     pub no_qr: bool,
 
-    /// Print the raw alleycat pair payload JSON instead of the doggypile PWA link.
+    /// Print the raw doggypile pair payload JSON instead of the doggypile PWA link.
     #[arg(long)]
     pub raw: bool,
 

@@ -12,9 +12,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as StdContext, Poll};
 
-use alleycat_bridge_core::serve_stream_with_session;
-use alleycat_bridge_core::session::{SessionRegistry, SessionRegistryConfig};
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher};
+use doggypile_bridge_core::serve_stream_with_session;
+use doggypile_bridge_core::session::{SessionRegistry, SessionRegistryConfig};
+use doggypile_bridge_core::{LocalLauncher, ProcessLauncher};
 use anyhow::Result;
 use dashmap::DashMap;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};

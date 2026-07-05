@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use alleycat_codex_proto::{
+use doggypile_codex_proto::{
     AgentMessageDeltaNotification, CollabAgentState, CollabAgentStatus, CollabAgentTool,
     CollabAgentToolCallStatus, CommandExecutionOutputDeltaNotification, CommandExecutionStatus,
     DynamicToolCallArgumentsDeltaNotification, DynamicToolCallStatus, ErrorNotification,
@@ -1738,7 +1738,7 @@ fn json_bool_arg(args: &Value, key: &str) -> Option<bool> {
 /// valid JSON object — caller emits no notification in that case.
 fn parse_partial_file_change(
     input_buf: &str,
-) -> Option<Vec<alleycat_codex_proto::FileUpdateChange>> {
+) -> Option<Vec<doggypile_codex_proto::FileUpdateChange>> {
     let parsed: Value = serde_json::from_str(input_buf).ok()?;
     let path = parsed.get("file_path").or_else(|| parsed.get("path"))?;
     let path = path.as_str()?.to_string();
@@ -3012,7 +3012,7 @@ mod tests {
             } => {
                 assert!(matches!(
                     tool,
-                    alleycat_codex_proto::CollabAgentTool::SpawnAgent
+                    doggypile_codex_proto::CollabAgentTool::SpawnAgent
                 ));
                 assert!(matches!(status, CollabAgentToolCallStatus::InProgress));
                 assert_eq!(sender_thread_id, "th_1");

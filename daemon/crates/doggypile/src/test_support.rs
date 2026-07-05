@@ -29,7 +29,7 @@ impl TempHome {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         path.push(format!(
-            "alleycat-test-{}-{}-{}",
+            "doggypile-test-{}-{}-{}",
             std::process::id(),
             stamp,
             rand_suffix()
