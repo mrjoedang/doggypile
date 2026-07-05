@@ -7,7 +7,7 @@
     "dev": "bun dev.mjs",
     "stop": "cd daemon && cargo run -q -p alleycat --bin alleycat -- stop",
     "daemon": "cd daemon && cargo run -p alleycat --bin alleycat -- serve",
-    "pair": "cd daemon && cargo run -q -p alleycat --bin alleycat -- pair --url \"${DOGGYPILE_WEB:-https://doggypile.app}\" --qr",
+    "pair": "cd daemon && cargo run -q -p alleycat --bin alleycat -- pair",
     "web": "python3 -m http.server 8123 --directory web",
     "build:daemon": "cd daemon && cargo build --release -p alleycat --bin alleycat",
     "build:wasm": "wasm/build.sh"

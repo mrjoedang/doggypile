@@ -1,4 +1,4 @@
-use clap::Args;
+use clap::{ArgAction, Args};
 use qrcodegen::{QrCode, QrCodeEcc};
 
 use crate::cli;
@@ -7,12 +7,19 @@ use crate::protocol::PairPayload;
 
 #[derive(Args, Debug)]
 pub struct PairArgs {
-    /// Render an ASCII QR code for the pair payload.
-    #[arg(long)]
+    /// Render an ASCII QR code for the pair link.
+    #[arg(long, default_value_t = true, action = ArgAction::SetTrue)]
     pub qr: bool,
 
-    /// Wrap the payload into a doggypile PWA link (`<url>#node=..&token=..&relay=..`)
-    /// and emit that instead of raw JSON. Scan it to open the PWA already paired.
+    /// Do not render the ASCII QR code.
+    #[arg(long, conflicts_with = "qr")]
+    pub no_qr: bool,
+
+    /// Print the raw alleycat pair payload JSON instead of the doggypile PWA link.
+    #[arg(long)]
+    pub raw: bool,
+
+    /// Override the doggypile PWA base URL.
     #[arg(long)]
     pub url: Option<String>,
 }
@@ -31,19 +38,24 @@ pub async fn run(args: PairArgs) -> anyhow::Result<()> {
     let resp = cli::send(Request::Pair).await?;
     let payload: PairPayload = cli::decode_data(resp)?;
 
-    let out = match &args.url {
-        Some(base) => {
-            let base = base.trim_end_matches('#');
-            let mut link = format!("{base}#node={}&token={}", payload.node_id, payload.token);
-            if let Some(relay) = payload.relay.as_deref() {
-                link.push_str(&format!("&relay={relay}"));
-            }
-            link
+    let out = if args.raw {
+        serde_json::to_string(&payload)?
+    } else {
+        let base = args
+            .url
+            .as_deref()
+            .map(str::to_owned)
+            .or_else(|| std::env::var("DOGGYPILE_WEB").ok())
+            .unwrap_or_else(|| "https://mrjoedang.github.io/doggypile/".to_string());
+        let base = base.trim_end_matches('#');
+        let mut link = format!("{base}#node={}&token={}", payload.node_id, payload.token);
+        if let Some(relay) = payload.relay.as_deref() {
+            link.push_str(&format!("&relay={relay}"));
         }
-        None => serde_json::to_string(&payload)?,
+        link
     };
     println!("{out}");
-    if args.qr {
+    if args.qr && !args.no_qr {
         println!();
         print_qr(&out)?;
     }

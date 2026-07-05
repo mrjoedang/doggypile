@@ -71,13 +71,13 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(PORT, '0.0.0.0', r));
 
-// 3. ensure the daemon is up and print the pairing QR pointed at this server
+// 3. ensure the daemon is up and print the pairing URL + QR pointed at this server
 const url = `http://${lanIp()}:${PORT}`;
 console.log('');
-if (spawnSync(BIN, ['pair', '--url', url, '--qr'], { stdio: 'inherit' }).status !== 0) {
+if (spawnSync(BIN, ['pair', '--url', url], { stdio: 'inherit' }).status !== 0) {
   console.error('doggypile: pairing failed (is `codex` on PATH?)'); process.exit(1);
 }
-console.log(`\n  📡 PWA served at ${url}  —  scan the QR above (phone on same wifi).`);
+console.log(`\n  PWA served at ${url}  —  open the URL above or scan the QR (phone on same wifi).`);
 console.log('  Ctrl-C stops serving. The daemon keeps running; `bun run stop` to stop it.\n');
 
 process.on('SIGINT', () => { server.close(); process.exit(0); });
