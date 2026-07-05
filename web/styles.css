@@ -36,7 +36,7 @@ body {
 }
 #status[data-state="connected"] { color: var(--fg); border-color: var(--fg); }
 #status[data-state="reconnecting"], #status[data-state="connecting"] { color: #d9a441; border-color: #6b501a; }
-#status[data-state="offline"], #status[data-state="no pairing"] { color: #d95757; border-color: #6b1a1a; }
+#status[data-state="offline"], #status[data-state="no pairing"], #status[data-state="pairing expired"] { color: #d95757; border-color: #6b1a1a; }
 
 #main { flex: 1 1 auto; overflow-y: auto; }
 .empty { padding: 32px 18px; color: var(--dim); text-align: center; }

@@ -1,6 +1,6 @@
-import { connect } from './transport.js';
-import { makeRpc } from './rpc.js';
-import { createProjection } from './projection.js';
+import { connect } from './transport.js?v=20260705-connection';
+import { makeRpc } from './rpc.js?v=20260705-connection';
+import { createProjection } from './projection.js?v=20260705-connection';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -18,6 +18,8 @@ const state = {
   projection: null,
   turnActive: false,
   status: 'connecting',
+  connectAttempt: 0,
+  reconnectTimer: null,
 };
 
 function readCreds() {
@@ -42,11 +44,12 @@ function saveToken(token) {
   localStorage.setItem('doggypile:creds', JSON.stringify(state.creds));
 }
 
-function setStatus(s) {
+function setStatus(s, detail) {
   state.status = s;
   const pill = $('#status');
   pill.textContent = s;
   pill.dataset.state = s;
+  pill.title = detail || '';
 }
 
 async function boot() {
@@ -60,6 +63,11 @@ async function boot() {
 }
 
 async function connectAndSync() {
+  const attempt = ++state.connectAttempt;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
   setStatus('connecting');
   try {
     state.transport = await connect({
@@ -69,13 +77,23 @@ async function connectAndSync() {
       onToken: saveToken,
       onLine: (line) => state.rpc?.handleLine(line),
       onClose: () => {
+        if (attempt !== state.connectAttempt) return;
         setStatus('reconnecting');
-        setTimeout(connectAndSync, 1000);
+        state.reconnectTimer = setTimeout(connectAndSync, 1000);
       },
     });
   } catch (e) {
-    setStatus('offline');
-    setTimeout(connectAndSync, 2000);
+    if (attempt !== state.connectAttempt) return;
+    const detail = e instanceof Error ? e.message : String(e);
+    if (/already-used|invalid/i.test(detail)) {
+      localStorage.removeItem('doggypile:creds');
+      state.creds = null;
+      setStatus('pairing expired', detail);
+      $('#main').replaceChildren(el('div', 'empty', 'Pairing link expired. Run `npm run pair` again.'));
+      return;
+    }
+    setStatus('offline', detail);
+    state.reconnectTimer = setTimeout(connectAndSync, 2000);
     return;
   }
 

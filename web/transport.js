@@ -4,7 +4,7 @@
 // over the raw byte channel and surface each text frame as a JSON-RPC line.
 //
 // Interface is unchanged from the old transport: connect(...) -> { sendLine, close }.
-import init, { Channel } from './vendor/iroh/doggypile_transport.js';
+import init, { Channel } from './vendor/iroh/doggypile_transport.js?v=20260705-connection';
 
 const ALPN = new TextEncoder().encode('alleycat/1');
 const enc = new TextEncoder();
