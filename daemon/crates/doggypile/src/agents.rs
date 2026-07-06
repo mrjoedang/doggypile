@@ -24,7 +24,7 @@ use doggypile_shell_bridge::ShellBridge;
 use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
 use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -530,10 +530,21 @@ impl AgentManager {
     }
 
     async fn serve_codex_unix_proxy(&self, mut iroh_stream: IrohStream) -> anyhow::Result<()> {
-        let endpoint = if self.codex_mode == CodexMode::UnixDaemon {
-            self.ensure_codex_daemon_running().await?
+        let endpoint = match if self.codex_mode == CodexMode::UnixDaemon {
+            self.ensure_codex_daemon_running().await
         } else {
-            self.ensure_codex_unix_running().await?
+            self.ensure_codex_unix_running().await
+        } {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                let _ = Self::write_websocket_error_response(
+                    &mut iroh_stream,
+                    503,
+                    &format!("Codex app-server unavailable: {error:#}"),
+                )
+                .await;
+                return Err(error);
+            }
         };
         let env = self.daemon_launch_env().await;
         let mut command = codex_command(&endpoint.bin);
@@ -579,14 +590,52 @@ impl AgentManager {
     }
 
     async fn serve_codex_ws(&self, mut iroh_stream: IrohStream) -> anyhow::Result<()> {
-        let (host, port) = self.ensure_codex_running().await?;
-        let mut tcp = TcpStream::connect((host.as_str(), port))
-            .await
-            .with_context(|| format!("connecting to codex app-server at {host}:{port}"))?;
+        let (host, port) = match self.ensure_codex_running().await {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                let _ = Self::write_websocket_error_response(
+                    &mut iroh_stream,
+                    503,
+                    &format!("Codex app-server unavailable: {error:#}"),
+                )
+                .await;
+                return Err(error);
+            }
+        };
+        let mut tcp = match TcpStream::connect((host.as_str(), port)).await {
+            Ok(tcp) => tcp,
+            Err(error) => {
+                let message = format!("connecting to codex app-server at {host}:{port}: {error}");
+                let _ = Self::write_websocket_error_response(&mut iroh_stream, 503, &message).await;
+                return Err(anyhow!(message));
+            }
+        };
         let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut tcp).await;
         Ok(())
     }
 
+    async fn write_websocket_error_response<S>(
+        stream: &mut S,
+        status: u16,
+        message: &str,
+    ) -> std::io::Result<()>
+    where
+        S: AsyncWrite + Unpin,
+    {
+        let compact = message
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let reason = compact.chars().take(180).collect::<String>();
+        let body = format!("{compact}\n");
+        let response = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await
+    }
     /// Starts the upstream Codex app-server daemon idempotently, then uses the
     /// socket path reported by the daemon's JSON lifecycle output.
     async fn ensure_codex_daemon_running(&self) -> anyhow::Result<CodexUnixEndpoint> {

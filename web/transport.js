@@ -75,8 +75,19 @@ export async function connect({ nodeId, token, relay, directAddrs = [], agent = 
     return -1;
   };
   let he; while ((he = findHeaderEnd()) < 0) await pull();
-  const statusLine = dec.decode(take(he)).split('\r\n')[0];
-  if (!/\b101\b/.test(statusLine)) throw new Error('ws upgrade failed: ' + statusLine);
+  const headerText = dec.decode(take(he));
+  const headerLines = headerText.split('\r\n');
+  const statusLine = headerLines[0];
+  if (!/\b101\b/.test(statusLine)) {
+    const contentLengthLine = headerLines.find((line) => /^content-length\s*:/i.test(line));
+    const contentLength = contentLengthLine ? Number(contentLengthLine.split(':').slice(1).join(':').trim()) : 0;
+    let body = '';
+    if (Number.isFinite(contentLength) && contentLength > 0) {
+      await need(contentLength);
+      body = dec.decode(take(contentLength)).trim();
+    }
+    throw new Error(`ws upgrade failed: ${body || statusLine}`);
+  }
   mark('websocket', t);
   reportMetrics();
 
