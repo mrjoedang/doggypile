@@ -1,6 +1,6 @@
-import { connect } from './transport.js?v=20260705-paths';
+import { connect } from './transport.js?v=20260706-opencode-live';
 import { makeRpc } from './rpc.js?v=20260705-paths';
-import { createProjection } from './projection.js?v=20260705-paths';
+import { createProjection } from './projection.js?v=20260706-opencode-live';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -22,6 +22,7 @@ const state = {
   connectAttempt: 0,
   reconnectTimer: null,
   lastMetrics: null,
+  activeAgent: null,
   everConnected: false,
   creatingThread: false,
 };
@@ -57,8 +58,16 @@ function setStatus(key, label, detail) {
   pill.title = detail || '';
 }
 
+function connectedStatusLabel(path = state.lastMetrics?.path?.selected) {
+  const agent = state.activeAgent;
+  const agentLabel = agent && agent !== 'codex' ? ` ${agent}` : '';
+  const pathLabel = path && path !== 'unknown' ? ` ${path}` : '';
+  return `connected${agentLabel}${pathLabel}`;
+}
+
 function onMetrics(metrics) {
   state.lastMetrics = metrics;
+  if (metrics.agent) state.activeAgent = metrics.agent;
   const phases = metrics.timings
     ? Object.entries(metrics.timings).map(([k, v]) => `${k}=${Math.round(v)}ms`).join(' ')
     : '';
@@ -66,7 +75,7 @@ function onMetrics(metrics) {
     ? `${metrics.path.selected}${metrics.path.rtt_ms != null ? ` ${metrics.path.rtt_ms}ms` : ''}`
     : '';
   const detail = [path, phases].filter(Boolean).join(' | ');
-  if (state.status.startsWith('connected') && path) setStatus(`connected ${metrics.path.selected}`, null, detail);
+  if (state.status.startsWith('connected') && path) setStatus(connectedStatusLabel(metrics.path.selected), null, detail);
   else if (detail) $('#status').title = detail;
   if (detail) console.info('[doggypile] connection', metrics);
 }
@@ -164,6 +173,7 @@ async function connectAndSync() {
         state.reconnectTimer = setTimeout(connectAndSync, 1000);
       },
     });
+    state.activeAgent = state.transport.agent || null;
     state.rpc = makeRpc(state.transport, { onNotify });
     await state.rpc.initialize();
   } catch (e) {
@@ -198,8 +208,7 @@ async function connectAndSync() {
     return;
   }
   state.everConnected = true;
-  const path = state.lastMetrics?.path?.selected;
-  setStatus(path && path !== 'unknown' ? `connected ${path}` : 'connected');
+  setStatus(connectedStatusLabel());
 
   if (state.threadId) await openThread(state.threadId, state.threadTitle); // resume where we were
   else await showSessions();
@@ -376,11 +385,17 @@ function bubble(role, text) {
 }
 
 function onNotify(msg) {
+  if (msg.params?.threadId && msg.params.threadId !== state.threadId) return;
   if (msg.method === 'turn/started') { state.turnActive = true; scheduleRenderChat(); return; }
   if (msg.method === 'turn/completed' || msg.method === 'turn/failed') { state.turnActive = false; scheduleRenderChat(); return; }
+  if (msg.method === 'thread/status/changed') {
+    const status = msg.params?.status?.type;
+    if (status === 'active' || status === 'busy') state.turnActive = true;
+    if (status === 'idle') state.turnActive = false;
+    scheduleRenderChat();
+    return;
+  }
   if (!state.projection) return;
-  // Only react to events for the open thread.
-  if (msg.params?.threadId && msg.params.threadId !== state.threadId) return;
   if (state.projection.applyNotification(msg)) scheduleRenderChat();
 }
 
@@ -390,6 +405,7 @@ async function send() {
   if (!text || !state.threadId) return;
   box.value = '';
   autoResize();
+  const localMessageId = state.projection?.addLocalUserMessage(text);
   state.turnActive = true;
   scheduleRenderChat();
   try {
@@ -399,6 +415,7 @@ async function send() {
     });
   } catch (e) {
     state.turnActive = false;
+    if (localMessageId) state.projection?.removeLocalMessage(localMessageId);
     if (!box.value) { box.value = text; autoResize(); } // let the user retry
     toast(`Send failed: ${e?.message || e}`);
     scheduleRenderChat();
