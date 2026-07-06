@@ -25,6 +25,8 @@ The UI may display the selected agent/path in connection status.
 
 The projection layer tolerates opencode live-stream lifecycle quirks, including stale empty lifecycle frames and duplicated replay artifacts.
 
+If neither Codex nor opencode is available, the browser may offer an explicit user-confirmed fallback to install opencode. The browser calls a daemon `install_agent` operation; the daemon runs the official installer command (`curl -fsSL https://opencode.ai/install | bash`) and then re-advertises agents. The install is never silent: the user must confirm after seeing the command.
+
 ## Consequences
 
 Positive:
@@ -32,12 +34,14 @@ Positive:
 - Browser can work with either Codex or opencode daemons.
 - Transport protocol selection is daemon-driven instead of hardcoded.
 - Codex remains the preferred/default experience.
+- A fresh host without Codex or opencode can bootstrap into a supported configuration from the browser UI.
 
 Tradeoffs:
 
 - Client transport is more complex.
 - Projection layer now contains compatibility logic for opencode streaming quirks.
 - Future agents should advertise a `wire` value and ideally avoid requiring agent-specific projection hacks.
+- The daemon owns a network installer path, so the UI must clearly disclose the command and require consent.
 
 ## Alternatives considered
 

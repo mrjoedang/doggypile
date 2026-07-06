@@ -1,4 +1,4 @@
-import { connect } from './transport.js?v=20260706-opencode-live';
+import { connect, installAgent, NoSupportedAgentError } from './transport.js?v=20260706-opencode-install';
 import { makeRpc } from './rpc.js?v=20260705-paths';
 import { createProjection } from './projection.js?v=20260706-opencode-live';
 
@@ -146,6 +146,39 @@ async function boot() {
   await connectAndSync();
 }
 
+async function installOpencodeAndReconnect(attempt) {
+  if (!confirm('No supported agent is available. Install opencode on your computer now?\n\nThis will run:\ncurl -fsSL https://opencode.ai/install | bash')) return false;
+  setStatus('installing', 'installing opencode');
+  setHeader(brandEl());
+  showComposer(false);
+  $('#main').replaceChildren(stateBox({ spinner: true, title: 'Installing opencode…', body: 'Running the official opencode installer on your computer.' }));
+  try {
+    await installAgent({
+      nodeId: state.creds.node,
+      token: state.creds.token,
+      relay: state.creds.relay,
+      directAddrs: state.creds.addrs || [],
+      agent: 'opencode',
+      onToken: saveToken,
+    });
+  } catch (e) {
+    if (attempt !== state.connectAttempt) return true;
+    const detail = e instanceof Error ? e.message : String(e);
+    setStatus('offline', null, detail);
+    const retry = el('button', 'btn', 'Try install again');
+    retry.onclick = () => installOpencodeAndReconnect(++state.connectAttempt);
+    $('#main').replaceChildren(stateBox({
+      icon: '⚠️',
+      title: 'opencode install failed',
+      body: detail,
+      action: retry,
+    }));
+    return true;
+  }
+  if (attempt === state.connectAttempt) await connectAndSync();
+  return true;
+}
+
 async function connectAndSync() {
   const attempt = ++state.connectAttempt;
   if (state.reconnectTimer) {
@@ -190,6 +223,10 @@ async function connectAndSync() {
         body: 'Run doggypile pair again to reconnect this device.',
       }));
       return;
+    }
+    if (e instanceof NoSupportedAgentError && !state.everConnected) {
+      const handled = await installOpencodeAndReconnect(attempt);
+      if (handled) return;
     }
     setStatus('offline', null, detail);
     // Before the first successful connect there's nothing else to show; after

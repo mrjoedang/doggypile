@@ -128,6 +128,10 @@ impl LaunchEnvironmentResolver {
         );
         env
     }
+
+    pub async fn clear_cache(&self) {
+        self.cache.lock().await.clear();
+    }
 }
 
 #[derive(Debug, Clone)]

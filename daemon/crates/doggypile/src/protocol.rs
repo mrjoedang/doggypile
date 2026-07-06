@@ -155,6 +155,11 @@ pub enum Request {
         token: String,
         agent: String,
     },
+    InstallAgent {
+        v: u32,
+        token: String,
+        agent: String,
+    },
     Connect {
         v: u32,
         token: String,
@@ -167,9 +172,10 @@ pub enum Request {
 impl Request {
     pub fn version(&self) -> u32 {
         match self {
-            Self::ListAgents { v, .. } | Self::RestartAgent { v, .. } | Self::Connect { v, .. } => {
-                *v
-            }
+            Self::ListAgents { v, .. }
+            | Self::RestartAgent { v, .. }
+            | Self::InstallAgent { v, .. }
+            | Self::Connect { v, .. } => *v,
         }
     }
 
@@ -177,6 +183,7 @@ impl Request {
         match self {
             Self::ListAgents { token, .. }
             | Self::RestartAgent { token, .. }
+            | Self::InstallAgent { token, .. }
             | Self::Connect { token, .. } => token,
         }
     }

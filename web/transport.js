@@ -13,6 +13,14 @@ const dec = new TextDecoder();
 let ready;
 const ensureInit = () => (ready ??= init());
 
+export class NoSupportedAgentError extends Error {
+  constructor(message, { agents = [] } = {}) {
+    super(message);
+    this.name = 'NoSupportedAgentError';
+    this.agents = agents;
+  }
+}
+
 export async function connect(options) {
   const { agent = 'auto' } = options;
   let token = options.token;
@@ -67,7 +75,7 @@ export async function connect(options) {
 
   const codexStatus = codex ? 'reported unavailable' : 'not advertised';
   const opencodeStatus = opencode ? 'reported unavailable' : 'not advertised';
-  throw new Error(`No supported agent is available: codex ${codexStatus}; opencode ${opencodeStatus}`);
+  throw new NoSupportedAgentError(`No supported agent is available: codex ${codexStatus}; opencode ${opencodeStatus}`, { agents });
 }
 
 async function discoverWire(options, token, agent, onToken) {
@@ -86,6 +94,21 @@ async function listAgents({ nodeId, relay, directAddrs = [] }, token, onToken) {
     const resp = await readJsonFrame(io);
     if (!resp.ok) throw new Error(resp.error || 'doggypile list_agents rejected');
     if (resp.auth_token) onToken(resp.auth_token);
+    return resp.agents || [];
+  } finally {
+    ch.close();
+  }
+}
+
+export async function installAgent({ nodeId, token, relay, directAddrs = [], agent, onToken }) {
+  await ensureInit();
+  const ch = await Channel.connect(nodeId, ALPN, relay ?? undefined, directAddrs);
+  const io = bufferedIo(ch);
+  try {
+    await sendJsonFrame(ch, { op: 'install_agent', v: 1, token, agent });
+    const resp = await readJsonFrame(io);
+    if (!resp.ok) throw new Error(resp.error || `doggypile install_agent ${agent} rejected`);
+    if (resp.auth_token) onToken?.(resp.auth_token);
     return resp.agents || [];
   } finally {
     ch.close();

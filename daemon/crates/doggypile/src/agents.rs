@@ -5,6 +5,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use anyhow::{Context, anyhow};
+use arc_swap::ArcSwap;
 use doggypile_acp_bridge::AcpBridge;
 use doggypile_amp_bridge::AmpBridge;
 use doggypile_bridge_core::codex_resolver::{newest_codex_candidates_first, program_candidates};
@@ -21,8 +23,6 @@ use doggypile_hermes_bridge::{HermesBridge, HermesBridgeConfig};
 use doggypile_opencode_bridge::OpencodeBridge;
 use doggypile_pi_bridge::PiBridge;
 use doggypile_shell_bridge::ShellBridge;
-use anyhow::{Context, anyhow};
-use arc_swap::ArcSwap;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -368,6 +368,51 @@ impl AgentManager {
             });
         }
         out
+    }
+
+    pub async fn install_agent(&self, agent: &str) -> anyhow::Result<()> {
+        if agent != "opencode" {
+            return Err(anyhow!("agent `{agent}` cannot be installed automatically"));
+        }
+
+        let launch_env = self.daemon_launch_env().await;
+        if self.opencode_available(&launch_env) {
+            return Ok(());
+        }
+
+        info!(agent, "installing agent");
+        let mut command = Command::new("bash");
+        let install_cmd = std::env::var("DOGGYPILE_OPENCODE_INSTALL_CMD")
+            .unwrap_or_else(|_| "curl -fsSL https://opencode.ai/install | bash".to_string());
+        command
+            .arg("-lc")
+            .arg(install_cmd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, value) in launch_env.clone().into_pairs() {
+            command.env(key, value);
+        }
+
+        let output = command
+            .output()
+            .await
+            .context("running opencode installer")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            let detail = if stderr.is_empty() { stdout } else { stderr };
+            return Err(anyhow!("opencode installer failed: {detail}"));
+        }
+
+        self.launch_env.clear_cache().await;
+        let launch_env = self.daemon_launch_env().await;
+        if !self.opencode_available(&launch_env) {
+            return Err(anyhow!(
+                "opencode installer finished, but opencode is still not available to the daemon"
+            ));
+        }
+        Ok(())
     }
 
     /// Static manifest lookup for telemetry / debugging. Returns the

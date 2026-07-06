@@ -243,6 +243,21 @@ async fn handle_stream(
             write_json_frame(&mut send, &Response::ok()).await?;
             Ok(())
         }
+        Request::InstallAgent { agent, .. } => {
+            info!(conn = conn, %agent, "install_agent");
+            if let Err(error) = agents.install_agent(&agent).await {
+                warn!(conn = conn, %agent, "install_agent failed: {error:#}");
+                write_json_frame(&mut send, &Response::error(error.to_string())).await?;
+                return Err(error);
+            }
+            let list = agents.list_agents().await;
+            write_json_frame(
+                &mut send,
+                &Response::agents(list, auth_outcome.replacement_token),
+            )
+            .await?;
+            Ok(())
+        }
         Request::Connect { agent, resume, .. } => {
             if !agents.agent_enabled(&agent) {
                 warn!(conn = conn, %agent, "rejecting: agent disabled or unknown");
@@ -414,6 +429,17 @@ mod tests {
         assert!(err.contains("protocol mismatch"));
     }
 
+    #[test]
+    fn install_agent_request_uses_protocol_version_and_token() {
+        let request = Request::InstallAgent {
+            v: PROTOCOL_VERSION,
+            token: "secret".to_string(),
+            agent: "opencode".to_string(),
+        };
+
+        assert!(validate_version(&request).is_ok());
+        assert_eq!(request.token(), "secret");
+    }
     #[test]
     fn pairing_auth_consumes_pairing_token_once_and_returns_reconnect_token() {
         let auth = PairingAuth::default();
