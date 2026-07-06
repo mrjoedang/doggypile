@@ -206,6 +206,9 @@ async fn handle_status(daemon: &DaemonState) -> Response {
         uptime_secs: daemon.started_at.elapsed().as_secs(),
         agents: daemon.agents.list_agents().await,
         version: Some(crate::binary_version().to_string()),
+        build_id: Some(crate::binary_build_id()),
+        protocol_version: Some(crate::protocol::PROTOCOL_VERSION),
+        host_capabilities: Some(crate::host_capabilities()),
     };
     Response::ok_with(&info).unwrap_or_else(|e| Response::err(e.to_string()))
 }

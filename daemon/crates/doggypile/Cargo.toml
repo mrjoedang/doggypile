@@ -9,6 +9,7 @@ homepage.workspace = true
 readme.workspace = true
 description = "Single-binary daemon and embedded PWA for chatting with Codex from your phone over iroh."
 publish = false
+build = "build.rs"
 
 [lib]
 name = "doggypile"

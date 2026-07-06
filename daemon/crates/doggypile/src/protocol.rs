@@ -201,6 +201,8 @@ pub struct Response {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_capabilities: Option<Vec<String>>,
 }
 
 impl Response {
@@ -212,6 +214,7 @@ impl Response {
             session: None,
             error: None,
             auth_token: None,
+            host_capabilities: None,
         }
     }
 
@@ -223,6 +226,7 @@ impl Response {
             session: Some(session),
             error: None,
             auth_token,
+            host_capabilities: None,
         }
     }
 
@@ -234,6 +238,7 @@ impl Response {
             session: None,
             error: None,
             auth_token,
+            host_capabilities: Some(crate::host_capabilities()),
         }
     }
 
@@ -245,6 +250,7 @@ impl Response {
             session: None,
             error: Some(error.into()),
             auth_token: None,
+            host_capabilities: None,
         }
     }
 }

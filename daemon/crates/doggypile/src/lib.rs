@@ -91,6 +91,23 @@ pub fn binary_version() -> &'static str {
     app().version
 }
 
+/// Build identity for same-version stale-daemon detection. Includes the
+/// package version plus the git SHA captured at compile time when available.
+pub fn binary_build_id() -> String {
+    let git = option_env!("DOGGYPILE_BUILD_GIT").unwrap_or("unknown");
+    format!("{}+{}", binary_version(), git)
+}
+
+pub(crate) const HOST_CAP_INSTALL_AGENT: &str = "install_agent";
+pub(crate) const HOST_CAPABILITIES: &[&str] = &[HOST_CAP_INSTALL_AGENT];
+
+pub(crate) fn host_capabilities() -> Vec<String> {
+    HOST_CAPABILITIES
+        .iter()
+        .map(|cap| (*cap).to_string())
+        .collect()
+}
+
 #[derive(Parser)]
 #[command(
     name = "doggypile",

@@ -82,34 +82,63 @@ pub async fn ensure_current_daemon() -> anyhow::Result<()> {
         return restart_daemon().await;
     }
 
-    // Something is listening. Ask its version. If the IPC handshake fails
-    // (socket exists but daemon is wedged), treat it as stale and bounce.
-    let needs_restart = match send(Request::Status).await {
+    // Something is listening. Ask its version/build/protocol identity. If the
+    // IPC handshake fails (socket exists but daemon is wedged), treat it as
+    // stale and bounce.
+    let restart_reason = match send(Request::Status).await {
         Ok(resp) => match decode_data::<StatusInfo>(resp) {
-            Ok(status) => {
-                let cli_version = crate::binary_version();
-                let daemon_version = status.version.as_deref().unwrap_or("<unknown>");
-                if daemon_version == cli_version {
-                    None
-                } else {
-                    Some(daemon_version.to_string())
-                }
-            }
-            Err(_) => Some("<unparseable>".to_string()),
+            Ok(status) => daemon_restart_reason(&status),
+            Err(_) => Some("returned unparseable status".to_string()),
         },
-        Err(_) => Some("<unreachable>".to_string()),
+        Err(_) => Some("is unreachable".to_string()),
     };
 
-    let Some(stale) = needs_restart else {
+    let Some(reason) = restart_reason else {
         return Ok(());
     };
 
     eprintln!(
-        "note: daemon is v{stale} but {cli} is v{cur}; restarting daemon onto v{cur}...",
+        "note: daemon {reason}; restarting {cli} daemon onto current build {build}...",
         cli = crate::binary_name(),
-        cur = crate::binary_version()
+        build = crate::binary_build_id()
     );
     restart_daemon().await
+}
+
+fn daemon_restart_reason(status: &StatusInfo) -> Option<String> {
+    let current_version = crate::binary_version();
+    let daemon_version = status.version.as_deref().unwrap_or("<unknown>");
+    if daemon_version != current_version {
+        return Some(format!(
+            "is v{daemon_version} but current {} is v{current_version}",
+            crate::binary_name()
+        ));
+    }
+
+    let current_build = crate::binary_build_id();
+    let daemon_build = status.build_id.as_deref().unwrap_or("<unknown>");
+    if daemon_build != current_build {
+        return Some(format!(
+            "build id is {daemon_build} but current build is {current_build}"
+        ));
+    }
+
+    let current_protocol = crate::protocol::PROTOCOL_VERSION;
+    let daemon_protocol = status.protocol_version.unwrap_or(0);
+    if daemon_protocol != current_protocol {
+        return Some(format!(
+            "protocol is v{daemon_protocol} but current protocol is v{current_protocol}"
+        ));
+    }
+
+    let caps = status.host_capabilities.as_deref().unwrap_or(&[]);
+    for required in crate::HOST_CAPABILITIES {
+        if !caps.iter().any(|cap| cap == required) {
+            return Some(format!("is missing `{required}` host capability"));
+        }
+    }
+
+    None
 }
 
 /// Stop any running daemon and start a fresh one from `current_exe`.
@@ -227,5 +256,55 @@ where
             return Err(anyhow!("timed out waiting for daemon state"));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn current_status() -> StatusInfo {
+        StatusInfo {
+            pid: 1,
+            node_id: "node".to_string(),
+            token_short: "token".to_string(),
+            relay: None,
+            config_path: "host.toml".to_string(),
+            uptime_secs: 1,
+            agents: Vec::new(),
+            version: Some(crate::binary_version().to_string()),
+            build_id: Some(crate::binary_build_id()),
+            protocol_version: Some(crate::protocol::PROTOCOL_VERSION),
+            host_capabilities: Some(crate::host_capabilities()),
+        }
+    }
+
+    #[test]
+    fn current_daemon_identity_does_not_restart() {
+        assert!(daemon_restart_reason(&current_status()).is_none());
+    }
+
+    #[test]
+    fn same_version_different_build_restarts() {
+        let mut status = current_status();
+        status.build_id = Some("0.1.1+old".to_string());
+        let reason = daemon_restart_reason(&status).unwrap();
+        assert!(reason.contains("build id"));
+    }
+
+    #[test]
+    fn missing_install_capability_restarts() {
+        let mut status = current_status();
+        status.host_capabilities = Some(Vec::new());
+        let reason = daemon_restart_reason(&status).unwrap();
+        assert!(reason.contains("install_agent"));
+    }
+
+    #[test]
+    fn older_status_without_build_identity_restarts() {
+        let mut status = current_status();
+        status.build_id = None;
+        let reason = daemon_restart_reason(&status).unwrap();
+        assert!(reason.contains("build id"));
     }
 }

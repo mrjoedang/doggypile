@@ -14,10 +14,11 @@ let ready;
 const ensureInit = () => (ready ??= init());
 
 export class NoSupportedAgentError extends Error {
-  constructor(message, { agents = [] } = {}) {
+  constructor(message, { agents = [], hostCapabilities = [] } = {}) {
     super(message);
     this.name = 'NoSupportedAgentError';
     this.agents = agents;
+    this.hostCapabilities = hostCapabilities;
   }
 }
 
@@ -35,7 +36,8 @@ export async function connect(options) {
     return connectAgent({ ...options, token, agent, wire, onToken });
   }
 
-  const agents = await listAgents(options, token, onToken);
+  const discovery = await listAgents(options, token, onToken);
+  const { agents, hostCapabilities } = discovery;
   const codex = agents.find((candidate) => candidate.name === 'codex');
   const opencode = agents.find((candidate) => candidate.name === 'opencode');
 
@@ -75,11 +77,11 @@ export async function connect(options) {
 
   const codexStatus = codex ? 'reported unavailable' : 'not advertised';
   const opencodeStatus = opencode ? 'reported unavailable' : 'not advertised';
-  throw new NoSupportedAgentError(`No supported agent is available: codex ${codexStatus}; opencode ${opencodeStatus}`, { agents });
+  throw new NoSupportedAgentError(`No supported agent is available: codex ${codexStatus}; opencode ${opencodeStatus}`, { agents, hostCapabilities });
 }
 
 async function discoverWire(options, token, agent, onToken) {
-  const agents = await listAgents(options, token, onToken);
+  const { agents } = await listAgents(options, token, onToken);
   const info = agents.find((candidate) => candidate.name === agent);
   if (!info) throw new Error(`agent \`${agent}\` is not advertised by the daemon`);
   return info.wire || 'jsonl';
@@ -94,7 +96,7 @@ async function listAgents({ nodeId, relay, directAddrs = [] }, token, onToken) {
     const resp = await readJsonFrame(io);
     if (!resp.ok) throw new Error(resp.error || 'doggypile list_agents rejected');
     if (resp.auth_token) onToken(resp.auth_token);
-    return resp.agents || [];
+    return { agents: resp.agents || [], hostCapabilities: resp.host_capabilities || [] };
   } finally {
     ch.close();
   }

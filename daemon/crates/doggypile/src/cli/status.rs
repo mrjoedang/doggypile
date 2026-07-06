@@ -36,6 +36,12 @@ pub async fn run(args: StatusArgs) -> anyhow::Result<()> {
         "  version:           {}",
         info.version.as_deref().unwrap_or("<unknown>")
     );
+    if let Some(build_id) = &info.build_id {
+        println!("  build id:          {build_id}");
+    }
+    if let Some(protocol_version) = info.protocol_version {
+        println!("  protocol:          v{protocol_version}");
+    }
     println!("  node id:           {}", info.node_id);
     println!("  token (sha256/16): {}", info.token_short);
     println!(
@@ -80,5 +86,8 @@ async fn offline_status() -> anyhow::Result<StatusInfo> {
         uptime_secs: 0,
         agents: agent_list,
         version: Some(crate::binary_version().to_string()),
+        build_id: Some(crate::binary_build_id()),
+        protocol_version: Some(crate::protocol::PROTOCOL_VERSION),
+        host_capabilities: Some(crate::host_capabilities()),
     })
 }

@@ -1,4 +1,4 @@
-import { connect, installAgent, NoSupportedAgentError } from './transport.js?v=20260706-opencode-install';
+import { connect, installAgent, NoSupportedAgentError } from './transport.js?v=20260706-install-capability';
 import { makeRpc } from './rpc.js?v=20260705-paths';
 import { createProjection } from './projection.js?v=20260706-opencode-live';
 
@@ -146,6 +146,20 @@ async function boot() {
   await connectAndSync();
 }
 
+function showDaemonTooOldForInstall(detail) {
+  setStatus('offline', null, detail);
+  setHeader(brandEl());
+  showComposer(false);
+  const retry = el('button', 'btn', 'Retry after restart');
+  retry.onclick = connectAndSync;
+  $('#main').replaceChildren(stateBox({
+    icon: '⚠️',
+    title: 'doggypile daemon needs restart',
+    body: 'This web UI can install opencode, but the running doggypile daemon is too old to understand install requests. Restart doggypile from the latest build, then retry.',
+    action: retry,
+  }));
+}
+
 async function installOpencodeAndReconnect(attempt) {
   if (!confirm('No supported agent is available. Install opencode on your computer now?\n\nThis will run:\ncurl -fsSL https://opencode.ai/install | bash')) return false;
   setStatus('installing', 'installing opencode');
@@ -163,7 +177,10 @@ async function installOpencodeAndReconnect(attempt) {
     });
   } catch (e) {
     if (attempt !== state.connectAttempt) return true;
-    const detail = e instanceof Error ? e.message : String(e);
+    let detail = e instanceof Error ? e.message : String(e);
+    if (/stream closed/i.test(detail)) {
+      detail = 'The daemon closed the install request. This usually means the running doggypile daemon is too old; restart doggypile from the latest build and try again.';
+    }
     setStatus('offline', null, detail);
     const retry = el('button', 'btn', 'Try install again');
     retry.onclick = () => installOpencodeAndReconnect(++state.connectAttempt);
@@ -225,6 +242,10 @@ async function connectAndSync() {
       return;
     }
     if (e instanceof NoSupportedAgentError && !state.everConnected) {
+      if (!e.hostCapabilities?.includes('install_agent')) {
+        showDaemonTooOldForInstall(detail);
+        return;
+      }
       const handled = await installOpencodeAndReconnect(attempt);
       if (handled) return;
     }

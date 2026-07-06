@@ -9,31 +9,31 @@ use crate::daemon::control::{Request, StatusInfo};
 use crate::ipc;
 
 pub async fn run() -> anyhow::Result<()> {
-    let cli_version = crate::binary_version();
     let cli_name = crate::binary_name();
+    let cli_build = crate::binary_build_id();
 
-    let daemon_version = if ipc::is_daemon_running().await {
+    let restart_reason = if ipc::is_daemon_running().await {
         match cli::send(Request::Status).await {
-            Ok(resp) => cli::decode_data::<StatusInfo>(resp)
-                .ok()
-                .and_then(|s| s.version)
-                .unwrap_or_else(|| "<unknown>".to_string()),
-            Err(_) => "<unreachable>".to_string(),
+            Ok(resp) => match cli::decode_data::<StatusInfo>(resp) {
+                Ok(status) => cli::daemon_restart_reason(&status),
+                Err(_) => Some("returned unparseable status".to_string()),
+            },
+            Err(_) => Some("is unreachable".to_string()),
         }
     } else {
-        println!("{cli_name}: no daemon running; starting v{cli_version}...");
+        println!("{cli_name}: no daemon running; starting build {cli_build}...");
         cli::restart_daemon().await?;
-        println!("{cli_name}: daemon started at v{cli_version}.");
+        println!("{cli_name}: daemon started at build {cli_build}.");
         return Ok(());
     };
 
-    if daemon_version == cli_version {
-        println!("{cli_name}: already running v{cli_version}; nothing to do.");
+    let Some(reason) = restart_reason else {
+        println!("{cli_name}: already running build {cli_build}; nothing to do.");
         return Ok(());
-    }
+    };
 
-    println!("{cli_name}: restarting daemon v{daemon_version} -> v{cli_version}...");
+    println!("{cli_name}: daemon {reason}; restarting onto build {cli_build}...");
     cli::restart_daemon().await?;
-    println!("{cli_name}: daemon now running v{cli_version}.");
+    println!("{cli_name}: daemon now running build {cli_build}.");
     Ok(())
 }

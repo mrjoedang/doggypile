@@ -74,6 +74,17 @@ pub struct StatusInfo {
     /// for forwards compatibility with daemons that predate the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Build identity of the running daemon. Unlike `version`, this changes
+    /// for same-version local/dev builds so CLI commands can detect stale
+    /// daemons after protocol-affecting commits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
+    /// Doggypile host protocol version spoken by this daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<u32>,
+    /// Host-level capabilities supported by this daemon protocol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_capabilities: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
