@@ -53,6 +53,9 @@ pub async fn run(args: PairArgs) -> anyhow::Result<()> {
             encode_fragment_value(&payload.node_id),
             encode_fragment_value(&payload.token)
         );
+        if let Some(name) = payload.host_name.as_deref() {
+            link.push_str(&format!("&name={}", encode_fragment_value(name)));
+        }
         if let Some(relay) = payload.relay.as_deref() {
             link.push_str(&format!("&relay={}", encode_fragment_value(relay)));
         }
