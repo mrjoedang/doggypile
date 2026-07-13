@@ -44,12 +44,16 @@ echo "Installing doggypile $tag ($label)"
 curl -fL "$url" -o "$tmp/$asset"
 tar -xzf "$tmp/$asset" -C "$tmp"
 mkdir -p "$INSTALL_DIR"
-cp "$tmp/doggypile" "$BIN"
-chmod 755 "$BIN"
-
+# Swap the binary in with an atomic rename, never an in-place copy. On macOS,
+# overwriting a Mach-O at a path a process is already running from (the
+# daemon, during an upgrade) poisons the kernel's per-vnode code-signature
+# cache, and every subsequent exec of that path dies with SIGKILL. A rename
+# installs a fresh inode; the running daemon keeps the old one until restart.
+chmod 755 "$tmp/doggypile"
 if [ "$(uname -s)" = "Darwin" ] && command -v xattr >/dev/null 2>&1; then
-  xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
+  xattr -d com.apple.quarantine "$tmp/doggypile" 2>/dev/null || true
 fi
+mv -f "$tmp/doggypile" "$BIN"
 
 agent_status="missing"
 for agent in codex opencode; do
