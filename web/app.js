@@ -377,6 +377,7 @@ async function boot() {
     state.threadDeviceId = history.state.deviceId || null;
   }
   state.devices = loadDevices();
+  loadThreadCache();
   upsertFromFragment(state.devices);
   if (!state.devices.length) {
     showUnpaired();
@@ -693,6 +694,7 @@ function forgetSheet(dev) {
     doit.onclick = () => {
       closeSheet();
       dropConn(dev.id);
+      purgeThreadCache(dev.id);
       state.devices = state.devices.filter((d) => d.id !== dev.id);
       persistDevices(state.devices);
       if (state.filter === dev.id) state.filter = 'all';
@@ -926,6 +928,53 @@ const chat = {
   forceStick: false, // one-shot: scroll to bottom regardless of position (e.g. after send)
 };
 
+// --- thread cache (stale-while-revalidate) ---
+// Last hydrated state of recently opened threads, keyed `deviceId:threadId`.
+// Opening a cached thread paints instantly from here while a fresh
+// thread/read runs behind it; renderChat reconciles by item id, so the
+// refresh diffs in without a flash. Persisted so cold launches (and offline
+// machines) still show the last known conversation.
+const THREADS_KEY = 'doggypile:threads';
+const THREAD_CACHE_MAX = 12;
+const threadCache = new Map(); // key -> { thread, at }
+
+function loadThreadCache() {
+  if (MOCK) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(THREADS_KEY) || 'null');
+    if (saved?.v === 1) {
+      for (const [k, e] of Object.entries(saved.entries || {})) {
+        if (e?.thread) threadCache.set(k, e);
+      }
+    }
+  } catch { /* corrupted cache: start empty */ }
+}
+
+function persistThreadCache() {
+  if (MOCK) return;
+  try {
+    const entries = Object.fromEntries(threadCache);
+    const json = JSON.stringify({ v: 1, entries });
+    if (json.length < 2_000_000) localStorage.setItem(THREADS_KEY, json);
+  } catch { /* quota exceeded: cache stays in-memory only */ }
+}
+
+function cacheThread(key, thread) {
+  threadCache.set(key, { thread, at: Date.now() });
+  while (threadCache.size > THREAD_CACHE_MAX) {
+    const oldest = [...threadCache.entries()].sort((a, b) => a[1].at - b[1].at)[0][0];
+    threadCache.delete(oldest);
+  }
+  persistThreadCache();
+}
+
+function purgeThreadCache(deviceId) {
+  for (const k of [...threadCache.keys()]) {
+    if (k.startsWith(`${deviceId}:`)) threadCache.delete(k);
+  }
+  persistThreadCache();
+}
+
 // User-initiated navigation into a thread: records a history entry so the
 // platform back gesture/button returns to the session list. Reconnect-resume
 // and popstate call openThread directly to avoid stacking duplicate entries.
@@ -951,20 +1000,50 @@ async function openThread(deviceId, id, title) {
   renderChips(); // hides the row while in chat
   showComposer(true);
   $('#input').placeholder = `Message ${conn?.agent || 'the agent'} on ${deviceLabel(dev) || 'your computer'}`;
+  const cacheKey = `${deviceId}:${id}`;
+  const cached = threadCache.get(cacheKey)?.thread;
+  if (cached) {
+    // Instant paint from the last known state; a fresh read diffs in below.
+    state.projection.seedFromThread(cached);
+    chat.forceStick = true;
+    renderChat();
+  }
+
   if (conn?.status !== 'connected' || !conn.rpc) {
     // Not connected (yet). dialConn re-enters openThread when this machine
-    // comes up; until then, show where we are.
-    $('#main').replaceChildren(stateBox({ spinner: true, body: `Connecting to ${deviceLabel(dev) || 'your computer'}…` }));
+    // comes up; a cached conversation stays readable in the meantime.
+    if (!cached) $('#main').replaceChildren(stateBox({ spinner: true, body: `Connecting to ${deviceLabel(dev) || 'your computer'}…` }));
     return;
   }
-  $('#main').replaceChildren(stateBox({ spinner: true, body: 'Loading conversation…' }));
-  // Resume to subscribe to live turn events, then hydrate history. A freshly
-  // started thread isn't materialized until its first message, so thread/read
-  // can fail — that's fine, we just start with an empty log.
-  await conn.rpc.request('thread/resume', { threadId: id }).catch(() => {});
-  const res = await conn.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null);
+
+  if (!cached) {
+    // Blank pane now; a spinner only if the read turns out to be slow.
+    // Fast opens never flash, slow ones still communicate.
+    $('#main').replaceChildren(el('div', 'log view'));
+    setTimeout(() => {
+      if (state.threadId === id && state.threadDeviceId === deviceId && !chat.log?.isConnected) {
+        $('#main').replaceChildren(stateBox({ spinner: true, body: 'Loading conversation…' }));
+      }
+    }, 200);
+  }
+
+  // Resume (subscribes to live turn events) and read (hydrates history) are
+  // independent requests — run them concurrently. A freshly started thread
+  // isn't materialized until its first message, so thread/read can fail —
+  // that's fine, we just start with an empty log.
+  const [, res] = await Promise.all([
+    conn.rpc.request('thread/resume', { threadId: id }).catch(() => {}),
+    conn.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null),
+  ]);
   if (state.threadId !== id || state.threadDeviceId !== deviceId) return; // navigated away while loading
-  if (res?.thread) state.projection.seedFromThread(res.thread);
+  if (res?.thread) {
+    cacheThread(cacheKey, res.thread);
+    // Reseed from the fresh read; renderChat diffs by item id into whatever
+    // the cached paint already put on screen.
+    const fresh = createProjection();
+    fresh.seedFromThread(res.thread);
+    state.projection = fresh;
+  }
   renderChat();
 }
 
