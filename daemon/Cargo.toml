@@ -28,19 +28,19 @@ homepage = "https://github.com/dnakov/doggypile"
 readme = "README.md"
 
 [workspace.dependencies]
-doggypile-acp-bridge = { path = "crates/acp-bridge", version = "0.1" }
-doggypile-bridge-core = { path = "crates/bridge-core", version = "0.1" }
-doggypile-amp-bridge = { path = "crates/amp-bridge", version = "0.1" }
-doggypile-codex-proto = { path = "crates/codex-proto", version = "0.1" }
-doggypile-claude-bridge = { path = "crates/claude-bridge", version = "0.1" }
-doggypile-claude-remote-control = { path = "crates/claude-remote-control", version = "0.1" }
-doggypile-devin-bridge = { path = "crates/devin-bridge", version = "0.1" }
-doggypile-grok-bridge = { path = "crates/grok-bridge", version = "0.1" }
-doggypile-droid-bridge = { path = "crates/droid-bridge", version = "0.1" }
-doggypile-hermes-bridge = { path = "crates/hermes-bridge", version = "0.1" }
-doggypile-opencode-bridge = { path = "crates/opencode-bridge", version = "0.1" }
-doggypile-pi-bridge = { path = "crates/pi-bridge", version = "0.1" }
-doggypile-shell-bridge = { path = "crates/shell-bridge", version = "0.1" }
+doggypile-acp-bridge = { path = "crates/acp-bridge" }
+doggypile-bridge-core = { path = "crates/bridge-core" }
+doggypile-amp-bridge = { path = "crates/amp-bridge" }
+doggypile-codex-proto = { path = "crates/codex-proto" }
+doggypile-claude-bridge = { path = "crates/claude-bridge" }
+doggypile-claude-remote-control = { path = "crates/claude-remote-control" }
+doggypile-devin-bridge = { path = "crates/devin-bridge" }
+doggypile-grok-bridge = { path = "crates/grok-bridge" }
+doggypile-droid-bridge = { path = "crates/droid-bridge" }
+doggypile-hermes-bridge = { path = "crates/hermes-bridge" }
+doggypile-opencode-bridge = { path = "crates/opencode-bridge" }
+doggypile-pi-bridge = { path = "crates/pi-bridge" }
+doggypile-shell-bridge = { path = "crates/shell-bridge" }
 anyhow = "1"
 arc-swap = "1"
 async-trait = "0.1"
