@@ -49,7 +49,6 @@ const state = {
   projection: null,
   turnActive: false,
   creatingThread: false,
-  lastChat: null, // { deviceId, threadId } of the chat we just left — pop-morph target
 };
 
 const connFor = (id) => state.conns.get(id);
@@ -57,24 +56,16 @@ const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) :
 const inChat = () => !!state.threadId;
 
 // --- view transitions ---
-// Navigation-level swaps only (sessions <-> chat, filter changes). Streaming
-// ticks and reconnect repaints never go through here — transitions capture
-// snapshots and briefly intercept input, which would jank a live turn.
+// Navigation-level swaps only (sessions <-> chat, filter changes), and only
+// a plain crossfade — shared-element morphs proved too distracting for an
+// action performed dozens of times a day. Streaming ticks and reconnect
+// repaints never go through here: transitions capture snapshots and briefly
+// intercept input, which would jank a live turn.
 const VT = !!document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (VT) document.documentElement.classList.add('vt');
 function navigate(update) {
   if (!VT) { update(); return; }
-  const t = document.startViewTransition(() => { update(); });
-  t.finished.finally(() => {
-    // Shared-element names must be unique per snapshot; one-shot markers are
-    // cleared so the next navigation can't collide with a stale one.
-    document.querySelectorAll('[data-vt-temp]').forEach((n) => { n.style.viewTransitionName = ''; delete n.dataset.vtTemp; });
-  });
-}
-function markVt(elm, name) {
-  if (!VT || !elm) return;
-  elm.style.viewTransitionName = name;
-  elm.dataset.vtTemp = '1';
+  document.startViewTransition(() => { update(); });
 }
 
 // --- device registry ---
@@ -779,7 +770,6 @@ function showSessions() {
   state.threadId = null;
   state.threadTitle = '';
   state.threadDeviceId = null;
-  if (VT) $('#main').style.viewTransitionName = ''; // chat-card belongs to the row again
   setHeader(brandEl());
   showComposer(false);
   renderChips();
@@ -855,18 +845,7 @@ function renderSessions() {
     if (when) meta.append(el('span', 'session-time', when));
     main.append(meta);
     row.append(main, icon('chevronRight', 'icon session-chevron'));
-    // Pop-morph target: coming back from a chat, its old row inflates back
-    // into place. Consumed one-shot so later repaints can't duplicate names.
-    if (state.lastChat && state.lastChat.deviceId === conn.dev.id && state.lastChat.threadId === t.id) {
-      markVt(row, 'chat-card');
-      markVt(row.querySelector('.session-title'), 'chat-title');
-      state.lastChat = null;
-    }
-    row.onclick = () => {
-      markVt(row, 'chat-card');
-      markVt(row.querySelector('.session-title'), 'chat-title');
-      navigate(() => navigateToThread(conn.dev.id, t.id, title));
-    };
+    row.onclick = () => navigate(() => navigateToThread(conn.dev.id, t.id, title));
     list.append(row);
   }
   $('#main').replaceChildren(sectionHead(), list);
@@ -990,13 +969,9 @@ async function openThread(deviceId, id, title) {
   state.projection = createProjection();
   chat.nodes.clear();
   chat.log = null;
-  state.lastChat = { deviceId, threadId: id };
   const conn = connFor(deviceId);
   const dev = conn?.dev || state.devices.find((d) => d.id === deviceId);
-  const titleEl = el('div', 'topbar-title', state.threadTitle || 'Session');
-  if (VT) titleEl.style.viewTransitionName = 'chat-title'; // push/pop morph partner
-  setHeader(backBtn(), titleEl);
-  if (VT) $('#main').style.viewTransitionName = 'chat-card'; // the pane the row expands into
+  setHeader(backBtn(), el('div', 'topbar-title', state.threadTitle || 'Session'));
   renderChips(); // hides the row while in chat
   showComposer(true);
   $('#input').placeholder = `Message ${conn?.agent || 'the agent'} on ${deviceLabel(dev) || 'your computer'}`;

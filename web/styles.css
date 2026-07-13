@@ -835,16 +835,12 @@ code {
 .btn-danger { color: var(--err); border-color: rgba(240, 133, 122, 0.4); }
 
 /* ---------- view transitions ---------- */
-/* Card expand: the tapped session row (old) and the chat pane (new) share
-   `chat-card`, so the browser morphs the row's rect into the pane. The
-   session title flies separately via `chat-title`. Names are assigned
-   one-shot in JS; when the API is missing everything falls back to the
-   legacy .view fade below. */
+/* Navigation swaps (sessions <-> chat, filter changes) crossfade via the
+   View Transition API — deliberately quiet: no shared elements, nothing to
+   track, just a fast fade. Falls back to the legacy .view fade when the API
+   is missing. */
 html.vt .view { animation: none; }
-::view-transition-group(chat-card) { animation-duration: 0.3s; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
-::view-transition-old(chat-card), ::view-transition-new(chat-card) { height: 100%; object-fit: none; object-position: top; overflow: clip; }
-::view-transition-group(chat-title) { animation-duration: 0.26s; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.2s; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.16s; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
