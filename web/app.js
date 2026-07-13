@@ -40,84 +40,281 @@ const icon = (name, cls = 'icon') => {
 };
 
 const state = {
-  creds: null,
-  transport: null,
-  rpc: null,
+  devices: [],
+  conns: new Map(), // device id -> connection (see connectDevice)
+  filter: 'all', // 'all' | device id — a view scope, never a connection switch
   threadId: null,
   threadTitle: '',
+  threadDeviceId: null,
   projection: null,
   turnActive: false,
-  status: 'connecting',
-  statusDetail: '',
-  connectAttempt: 0,
-  reconnectTimer: null,
-  lastMetrics: null,
-  activeAgent: null,
-  everConnected: false,
   creatingThread: false,
+  lastChat: null, // { deviceId, threadId } of the chat we just left — pop-morph target
 };
 
-function readCreds() {
-  if (MOCK) return { node: 'mock', token: 'mock', relay: null, addrs: [] };
+const connFor = (id) => state.conns.get(id);
+const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
+const inChat = () => !!state.threadId;
+
+// --- view transitions ---
+// Navigation-level swaps only (sessions <-> chat, filter changes). Streaming
+// ticks and reconnect repaints never go through here — transitions capture
+// snapshots and briefly intercept input, which would jank a live turn.
+const VT = !!document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (VT) document.documentElement.classList.add('vt');
+function navigate(update) {
+  if (!VT) { update(); return; }
+  const t = document.startViewTransition(() => { update(); });
+  t.finished.finally(() => {
+    // Shared-element names must be unique per snapshot; one-shot markers are
+    // cleared so the next navigation can't collide with a stale one.
+    document.querySelectorAll('[data-vt-temp]').forEach((n) => { n.style.viewTransitionName = ''; delete n.dataset.vtTemp; });
+  });
+}
+function markVt(elm, name) {
+  if (!VT || !elm) return;
+  elm.style.viewTransitionName = name;
+  elm.dataset.vtTemp = '1';
+}
+
+// --- device registry ---
+// One phone can hold pairings to many daemons. Persisted as
+// `doggypile:devices` { v: 1, devices: [{ id, name, token, relay, addrs,
+// addedAt, lastConnectedAt, lastError }] }, keyed by iroh node id. The old
+// single-slot `doggypile:creds` key migrates on first load and is left in
+// place so a rollback to an older build still reconnects.
+const DEVICES_KEY = 'doggypile:devices';
+const LEGACY_CREDS_KEY = 'doggypile:creds';
+
+function loadDevices() {
+  if (MOCK) return [{ id: 'mock', name: 'mock', token: 'mock', relay: null, addrs: [] }];
+  let devices = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEVICES_KEY) || 'null');
+    if (saved?.v === 1 && Array.isArray(saved.devices)) devices = saved.devices.filter((d) => d?.id && d?.token);
+  } catch { /* corrupted registry: fall through to migration */ }
+  if (!devices.length) {
+    try {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_CREDS_KEY) || 'null');
+      if (legacy?.node && legacy?.token) {
+        devices = [{ id: legacy.node, name: null, token: legacy.token, relay: legacy.relay ?? null, addrs: legacy.addrs || [], addedAt: Date.now() }];
+        persistDevices(devices);
+      }
+    } catch { /* no legacy creds either */ }
+  }
+  return devices;
+}
+
+function persistDevices(devices) {
+  if (MOCK) return;
+  localStorage.setItem(DEVICES_KEY, JSON.stringify({ v: 1, devices }));
+}
+
+function updateDevice(id, patch) {
+  const dev = state.devices.find((d) => d.id === id);
+  if (!dev) return;
+  Object.assign(dev, patch);
+  persistDevices(state.devices);
+}
+
+// A scanned QR lands here as a URL fragment. Upsert by node id: re-scanning a
+// known machine refreshes its token/addresses, a new machine joins the list.
+function upsertFromFragment(devices) {
+  if (MOCK) return null;
   const frag = new URLSearchParams(location.hash.slice(1));
   const node = frag.get('node');
   const token = frag.get('token');
+  if (!node || !token) return null;
   const relay = frag.get('relay'); // URLSearchParams decodes it
   const addrs = frag.getAll('addr');
-  if (node && token) {
-    // Persist so a re-open (from home screen) reconnects without the QR.
-    const creds = { node, token, relay, addrs };
-    localStorage.setItem('doggypile:creds', JSON.stringify(creds));
-    history.replaceState(null, '', location.pathname + location.search);
-    return creds;
+  const name = frag.get('name');
+  let dev = devices.find((d) => d.id === node);
+  if (dev) {
+    Object.assign(dev, { token, relay, addrs });
+    if (name) dev.name = name;
+  } else {
+    dev = { id: node, name, token, relay, addrs, addedAt: Date.now() };
+    devices.push(dev);
   }
-  const saved = localStorage.getItem('doggypile:creds');
-  return saved ? JSON.parse(saved) : null;
+  persistDevices(devices);
+  // Preserve any thread-restore state the history entry carries.
+  history.replaceState(history.state, '', location.pathname + location.search);
+  return dev;
 }
 
-function saveToken(token) {
-  if (!token || !state.creds || MOCK) return;
-  state.creds = { ...state.creds, token };
-  localStorage.setItem('doggypile:creds', JSON.stringify(state.creds));
+function deviceLabel(d) {
+  return d?.name || (d ? `${d.id.slice(0, 8)}…` : '');
 }
 
-// --- status pill ---
-function setStatus(key, label, detail) {
-  state.status = key;
-  state.statusDetail = detail || '';
-  const pill = $('#status');
-  pill.textContent = label || key;
-  pill.dataset.state = key.split(' ')[0];
-  pill.title = detail || '';
-}
+// --- connection pool ---
+// Every remembered machine keeps its own live connection; the chip row is a
+// view filter, never a connection switch. Each connection reconnects
+// independently with jittered exponential backoff, and a soft display
+// timeout marks slow dials offline long before iroh's 30s give-up.
 
-function connectedStatusLabel() {
-  return state.activeAgent || 'connected';
-}
+const SOFT_DIAL_TIMEOUT_MS = 6000;
+const BACKOFF_BASE_MS = 1000;
+const BACKOFF_MAX_MS = 30000;
 
-function onMetrics(metrics) {
-  state.lastMetrics = metrics;
-  if (metrics.agent) state.activeAgent = metrics.agent;
-  const phases = metrics.timings
-    ? Object.entries(metrics.timings).map(([k, v]) => `${k} ${Math.round(v)}ms`).join(' · ')
-    : '';
-  const path = metrics.path?.selected && metrics.path.selected !== 'unknown'
-    ? `${metrics.path.selected}${metrics.path.rtt_ms != null ? ` · ${metrics.path.rtt_ms}ms` : ''}`
-    : '';
-  const detail = [path, phases].filter(Boolean).join('\n');
-  if (state.status.startsWith('connected') || state.status === state.activeAgent) {
-    setStatus(connectedStatusLabel(), null, detail);
-    $('#status').dataset.state = 'connected';
-  } else if (detail) {
-    state.statusDetail = detail;
-    $('#status').title = detail;
+function connectAllDevices() {
+  for (const dev of state.devices) {
+    if (!state.conns.has(dev.id)) connectDevice(dev);
   }
 }
 
-function setConnectedStatus() {
-  setStatus(connectedStatusLabel(), null, state.statusDetail);
-  $('#status').dataset.state = 'connected';
+function connectDevice(dev, { resetBackoff = false } = {}) {
+  let conn = state.conns.get(dev.id);
+  if (!conn) {
+    conn = {
+      dev,
+      status: 'connecting',
+      attempt: 0,
+      backoffMs: BACKOFF_BASE_MS,
+      transport: null,
+      rpc: null,
+      agent: null,
+      metrics: null,
+      retryTimer: null,
+      softTimer: null,
+      threads: null, // null = never loaded; [] = loaded empty
+      threadsLoading: false,
+      lastDetail: '',
+      everConnected: false,
+    };
+    state.conns.set(dev.id, conn);
+  }
+  if (resetBackoff) conn.backoffMs = BACKOFF_BASE_MS;
+  clearTimeout(conn.retryTimer);
+  conn.retryTimer = null;
+  dialConn(conn);
+  return conn;
 }
+
+async function dialConn(conn) {
+  const attempt = ++conn.attempt;
+  const dev = conn.dev;
+  markConn(conn, 'connecting');
+  clearTimeout(conn.softTimer);
+  // Iroh only gives up after ~30s; show "offline" much sooner while the dial
+  // keeps trying underneath, so a dead machine reads as dead quickly.
+  conn.softTimer = setTimeout(() => {
+    if (conn.attempt === attempt && conn.status === 'connecting') markConn(conn, 'offline', 'not responding');
+  }, SOFT_DIAL_TIMEOUT_MS);
+
+  try {
+    const transport = await connect({
+      nodeId: dev.id,
+      token: dev.token,
+      relay: dev.relay,
+      directAddrs: dev.addrs || [],
+      onToken: (token) => updateDevice(dev.id, { token }),
+      onMetrics: (metrics) => {
+        conn.metrics = metrics;
+        if (metrics.agent) conn.agent = metrics.agent;
+      },
+      onLine: (line) => conn.rpc?.handleLine(line),
+      onClose: () => {
+        if (conn.attempt !== attempt) return;
+        markConn(conn, 'offline', 'connection closed');
+        scheduleReconnect(conn);
+      },
+    });
+    if (conn.attempt !== attempt) { transport.close(); return; }
+    conn.transport = transport;
+    conn.agent = transport.agent || conn.agent;
+    conn.rpc = makeRpc(transport, { onNotify: (msg) => onNotify(conn, msg) });
+    await conn.rpc.initialize();
+    if (conn.attempt !== attempt) return;
+    clearTimeout(conn.softTimer);
+    conn.backoffMs = BACKOFF_BASE_MS;
+    conn.everConnected = true;
+    updateDevice(dev.id, { lastConnectedAt: Date.now(), lastError: null });
+    markConn(conn, 'connected');
+    loadThreads(conn);
+    if (inChat() && state.threadDeviceId === dev.id) {
+      // The chat we're looking at lives on this machine: re-subscribe.
+      openThread(dev.id, state.threadId, state.threadTitle);
+    }
+  } catch (e) {
+    if (conn.attempt !== attempt) return;
+    clearTimeout(conn.softTimer);
+    const detail = e instanceof Error ? e.message : String(e);
+    if (/already-used|invalid/i.test(detail)) {
+      // This machine's pairing is dead. Keep the entry (name, history) so a
+      // re-scan upserts back into place, but stop retrying.
+      updateDevice(dev.id, { lastError: 'pairing expired' });
+      markConn(conn, 'expired', 'pairing expired — re-scan its QR');
+      return;
+    }
+    if (e instanceof NoSupportedAgentError) {
+      conn.installable = !!e.hostCapabilities?.includes('install_agent');
+      markConn(conn, 'noagent', detail);
+      return;
+    }
+    updateDevice(dev.id, { lastError: detail, lastErrorAt: Date.now() });
+    markConn(conn, 'offline', detail);
+    scheduleReconnect(conn);
+  }
+}
+
+function scheduleReconnect(conn, delayMs) {
+  if (conn.retryTimer || !state.conns.has(conn.dev.id)) return;
+  const jitter = 0.7 + Math.random() * 0.6; // ±30%
+  const delay = delayMs ?? Math.round(conn.backoffMs * jitter);
+  conn.backoffMs = Math.min(conn.backoffMs * 2, BACKOFF_MAX_MS);
+  conn.retryTimer = setTimeout(() => {
+    conn.retryTimer = null;
+    dialConn(conn);
+  }, delay);
+}
+
+function markConn(conn, status, detail) {
+  conn.status = status;
+  if (detail !== undefined) conn.lastDetail = detail || '';
+  renderChips();
+  if (!inChat() && (status === 'connected' || conn.threads === null)) renderSessions();
+}
+
+function dropConn(id) {
+  const conn = state.conns.get(id);
+  if (!conn) return;
+  conn.attempt++; // invalidate in-flight dials and close callbacks
+  clearTimeout(conn.retryTimer);
+  clearTimeout(conn.softTimer);
+  try { conn.transport?.close(); } catch { /* already closed */ }
+  state.conns.delete(id);
+}
+
+async function loadThreads(conn) {
+  if (conn.threadsLoading || !conn.rpc) return;
+  conn.threadsLoading = true;
+  try {
+    const res = await conn.rpc.request('thread/list', {});
+    conn.threads = res?.data || [];
+  } catch (e) {
+    conn.threads = conn.threads || [];
+    conn.lastDetail = `couldn’t list sessions: ${e?.message || e}`;
+  } finally {
+    conn.threadsLoading = false;
+  }
+  renderChips(); // session counts live on the chips
+  if (!inChat()) renderSessions();
+}
+
+// Retry every non-connected machine immediately when the app comes back to
+// the foreground or the network returns.
+function retryAllStale() {
+  for (const conn of state.conns.values()) {
+    if (conn.status === 'offline') {
+      clearTimeout(conn.retryTimer);
+      conn.retryTimer = null;
+      conn.backoffMs = BACKOFF_BASE_MS;
+      dialConn(conn);
+    }
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) retryAllStale(); });
+window.addEventListener('online', retryAllStale);
 
 // --- header / composer chrome ---
 function setHeader(...nodes) {
@@ -177,164 +374,390 @@ async function boot() {
   if (history.state?.threadId) {
     state.threadId = history.state.threadId;
     state.threadTitle = history.state.title || '';
+    state.threadDeviceId = history.state.deviceId || null;
   }
-  state.creds = readCreds();
-  if (!state.creds) {
-    setStatus('unpaired', 'not paired');
-    setHeader(brandEl());
-    showComposer(false);
-    $('#main').replaceChildren(stateBox({
-      icon: 'paw',
-      title: 'Pair this device',
-      body: [
-        'Run ',
-        el('code', null, 'doggypile pair'),
-        ' on your computer, then scan the QR code with this phone to connect.',
-      ],
-    }));
+  state.devices = loadDevices();
+  upsertFromFragment(state.devices);
+  if (!state.devices.length) {
+    showUnpaired();
     return;
   }
-  await connectAndSync();
+  // History entries from the single-device era carry no deviceId.
+  if (state.threadId && !state.threadDeviceId) state.threadDeviceId = state.devices[0].id;
+
+  await ensureLeadership();
+  startPool();
 }
 
-function showDaemonTooOldForInstall(detail) {
-  setStatus('offline', null, detail);
+function startPool() {
+  if (inChat()) openThread(state.threadDeviceId, state.threadId, state.threadTitle);
+  else showSessions();
+  connectAllDevices();
+}
+
+// --- multi-tab coordination ---
+// Exactly one tab owns the connection pool: iroh endpoints, reconnect
+// timers, and auth-token rotation must not race across tabs. Leadership is a
+// Web Lock held for the tab's lifetime; other tabs park on the lock queue
+// and take over automatically when the leader goes away, or on request via
+// BroadcastChannel.
+let releaseLeadership = null;
+const tabChannel = !MOCK && 'BroadcastChannel' in window ? new BroadcastChannel('doggypile:tabs') : null;
+
+async function ensureLeadership() {
+  if (MOCK || !navigator.locks) return; // mock is a dev tool; let tabs multiply
+  const got = await new Promise((resolve) => {
+    navigator.locks.request('doggypile:pool', { ifAvailable: true }, (lock) => {
+      if (!lock) { resolve(false); return; }
+      resolve(true);
+      return new Promise((release) => { releaseLeadership = release; });
+    }).catch(() => resolve(true)); // Locks API misbehaving: act alone rather than brick the app
+  });
+  if (got) return;
+  showFollowerBox();
+  await new Promise((resolve) => {
+    navigator.locks.request('doggypile:pool', () => {
+      resolve();
+      return new Promise((release) => { releaseLeadership = release; });
+    }).catch(() => resolve());
+  });
+}
+
+function showFollowerBox() {
   setHeader(brandEl());
   showComposer(false);
-  const retry = el('button', 'btn', 'Retry after restart');
-  retry.onclick = connectAndSync;
+  $('#chips').hidden = true;
+  const use = el('button', 'btn btn-accent', 'Use this tab');
+  use.onclick = () => {
+    tabChannel?.postMessage('takeover');
+    use.disabled = true;
+    use.textContent = 'Taking over…';
+  };
   $('#main').replaceChildren(stateBox({
-    icon: 'warn',
-    title: 'Daemon needs a restart',
-    body: 'This web UI can install opencode, but the running doggypile daemon is too old to understand install requests. Restart doggypile from the latest build, then retry.',
-    action: retry,
+    icon: 'paw',
+    title: 'Open in another tab',
+    body: 'doggypile is already connected from another tab or window. Close it and this one takes over automatically.',
+    action: use,
   }));
 }
 
-async function installOpencodeAndReconnect(attempt) {
-  if (!confirm('No supported agent is available. Install opencode on your computer now?\n\nThis will run:\ncurl -fsSL https://opencode.ai/install | bash')) return false;
-  setStatus('installing', 'installing');
+tabChannel?.addEventListener('message', async (e) => {
+  if (e.data !== 'takeover' || !releaseLeadership) return;
+  // Another tab asked for the pool: tear ours down and yield the lock.
+  for (const id of [...state.conns.keys()]) dropConn(id);
+  releaseLeadership();
+  releaseLeadership = null;
+  await ensureLeadership(); // parks this tab as a follower
+  startPool(); // and resumes if leadership ever comes back
+});
+
+function showUnpaired() {
   setHeader(brandEl());
   showComposer(false);
-  $('#main').replaceChildren(stateBox({ spinner: true, title: 'Installing opencode…', body: 'Running the official opencode installer on your computer.' }));
-  try {
-    await installAgent({
-      nodeId: state.creds.node,
-      token: state.creds.token,
-      relay: state.creds.relay,
-      directAddrs: state.creds.addrs || [],
-      agent: 'opencode',
-      onToken: saveToken,
-    });
-  } catch (e) {
-    if (attempt !== state.connectAttempt) return true;
-    let detail = e instanceof Error ? e.message : String(e);
-    if (/stream closed/i.test(detail)) {
-      detail = 'The daemon closed the install request. This usually means the running doggypile daemon is too old; restart doggypile from the latest build and try again.';
-    }
-    setStatus('offline', null, detail);
-    const retry = el('button', 'btn', 'Try install again');
-    retry.onclick = () => installOpencodeAndReconnect(++state.connectAttempt);
-    $('#main').replaceChildren(stateBox({
-      icon: 'warn',
-      title: 'opencode install failed',
-      body: detail,
-      action: retry,
-    }));
-    return true;
-  }
-  if (attempt === state.connectAttempt) await connectAndSync();
-  return true;
+  renderChips();
+  $('#main').replaceChildren(stateBox({
+    icon: 'paw',
+    title: 'Pair this device',
+    body: [
+      'Run ',
+      el('code', null, 'doggypile pair'),
+      ' on your computer, then scan the QR code with this phone to connect.',
+    ],
+  }));
 }
 
-async function connectAndSync() {
-  const attempt = ++state.connectAttempt;
-  if (state.reconnectTimer) {
-    clearTimeout(state.reconnectTimer);
-    state.reconnectTimer = null;
-  }
-  setStatus(state.everConnected ? 'reconnecting' : 'connecting', state.everConnected ? 'reconnecting' : 'connecting');
-  if (!state.everConnected) {
-    setHeader(brandEl());
-    showComposer(false);
-    $('#main').replaceChildren(stateBox({ spinner: true, body: 'Connecting to your daemon…' }));
-  }
-  try {
-    state.transport = await connect({
-      nodeId: state.creds.node,
-      token: state.creds.token,
-      relay: state.creds.relay,
-      directAddrs: state.creds.addrs || [],
-      onToken: saveToken,
-      onMetrics,
-      onLine: (line) => state.rpc?.handleLine(line),
-      onClose: () => {
-        if (attempt !== state.connectAttempt) return;
-        setStatus('reconnecting', 'reconnecting');
-        state.reconnectTimer = setTimeout(connectAndSync, 1000);
-      },
-    });
-    state.activeAgent = state.transport.agent || null;
-    state.rpc = makeRpc(state.transport, { onNotify });
-    await state.rpc.initialize();
-  } catch (e) {
-    if (attempt !== state.connectAttempt) return;
-    const detail = e instanceof Error ? e.message : String(e);
-    if (/already-used|invalid/i.test(detail)) {
-      localStorage.removeItem('doggypile:creds');
-      state.creds = null;
-      setStatus('expired', 'pairing expired', detail);
-      showComposer(false);
-      $('#main').replaceChildren(stateBox({
-        icon: 'warn',
-        title: 'Pairing link expired',
-        body: [
-          'Run ',
-          el('code', null, 'doggypile pair'),
-          ' again to reconnect this device.',
-        ],
-      }));
-      return;
-    }
-    if (e instanceof NoSupportedAgentError && !state.everConnected) {
-      if (!e.hostCapabilities?.includes('install_agent')) {
-        showDaemonTooOldForInstall(detail);
-        return;
-      }
-      const handled = await installOpencodeAndReconnect(attempt);
-      if (handled) return;
-    }
-    setStatus('offline', null, detail);
-    // Before the first successful connect there's nothing else to show; after
-    // that, keep the current view readable and retry quietly via the pill.
-    if (!state.everConnected) {
-      const retry = el('button', 'btn', 'Retry now');
-      retry.onclick = connectAndSync;
-      $('#main').replaceChildren(stateBox({
-        icon: 'warn',
-        title: 'Can’t reach the daemon',
-        body: `${detail}. Retrying automatically…`,
-        action: retry,
-      }));
-    }
-    state.reconnectTimer = setTimeout(connectAndSync, 2000);
+async function installOnConn(conn) {
+  if (!conn.installable) {
+    toast('No supported agent on this machine, and its daemon is too old for remote install. Restart doggypile there from a newer build.');
     return;
   }
-  state.everConnected = true;
-  setConnectedStatus();
+  if (!confirm(`No supported agent on ${deviceLabel(conn.dev)}. Install opencode there now?\n\nThis will run:\ncurl -fsSL https://opencode.ai/install | bash`)) return;
+  markConn(conn, 'connecting', 'installing opencode');
+  toast(`Installing opencode on ${deviceLabel(conn.dev)}…`);
+  try {
+    await installAgent({
+      nodeId: conn.dev.id,
+      token: conn.dev.token,
+      relay: conn.dev.relay,
+      directAddrs: conn.dev.addrs || [],
+      agent: 'opencode',
+      onToken: (token) => updateDevice(conn.dev.id, { token }),
+    });
+  } catch (e) {
+    let detail = e instanceof Error ? e.message : String(e);
+    if (/stream closed/i.test(detail)) detail = 'the daemon closed the install request — it may be too old';
+    markConn(conn, 'noagent', detail);
+    toast(`opencode install failed on ${deviceLabel(conn.dev)}: ${detail}`);
+    return;
+  }
+  dialConn(conn);
+}
 
-  if (state.threadId) await openThread(state.threadId, state.threadTitle); // resume where we were
-  else await showSessions();
+// --- machine chips ---
+function renderChips() {
+  const bar = $('#chips');
+  if (!bar) return;
+  if (!state.devices.length || inChat()) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.replaceChildren();
+
+  const totalCount = [...state.conns.values()].reduce((n, c) => n + (c.threads?.length || 0), 0);
+  const all = el('button', 'chip-btn', 'All');
+  all.setAttribute('aria-pressed', String(state.filter === 'all'));
+  if (totalCount) all.append(el('span', 'cnt', String(totalCount)));
+  all.onclick = () => navigate(() => { state.filter = 'all'; renderChips(); renderSessions(); });
+  bar.append(all);
+
+  for (const dev of state.devices) {
+    const conn = connFor(dev.id);
+    const status = conn?.status || 'connecting';
+    const chip = el('button', 'chip-btn');
+    chip.setAttribute('aria-pressed', String(state.filter === dev.id));
+    chip.dataset.offline = String(status === 'offline' || status === 'expired');
+    const dot = el('span', 'sdot');
+    dot.dataset.s = status;
+    chip.append(dot, document.createTextNode(deviceLabel(dev)));
+    const n = conn?.threads?.length;
+    if (n) chip.append(el('span', 'cnt', String(n)));
+    chip.onclick = () => chipTap(dev);
+    attachLongPress(chip, () => machineMenu(dev));
+    bar.append(chip);
+  }
+
+  const add = el('button', 'chip-btn chip-add');
+  add.setAttribute('aria-label', 'Pair another machine');
+  add.append(icon('plus'));
+  add.onclick = addMachineSheet;
+  bar.append(add);
+}
+
+function chipTap(dev) {
+  const conn = connFor(dev.id);
+  const status = conn?.status;
+  if (status === 'offline') {
+    toast(`Reconnecting to ${deviceLabel(dev)}…`);
+    clearTimeout(conn.retryTimer);
+    conn.retryTimer = null;
+    conn.backoffMs = BACKOFF_BASE_MS;
+    dialConn(conn);
+    return;
+  }
+  if (status === 'expired') {
+    toast(`Pairing with ${deviceLabel(dev)} expired — run doggypile pair there and re-scan the QR.`);
+    return;
+  }
+  if (status === 'noagent') {
+    installOnConn(conn);
+    return;
+  }
+  navigate(() => {
+    state.filter = state.filter === dev.id ? 'all' : dev.id; // same-tap clears
+    renderChips();
+    renderSessions();
+  });
+}
+
+function attachLongPress(node, fn) {
+  let timer = null;
+  let fired = false;
+  const start = () => { fired = false; timer = setTimeout(() => { fired = true; fn(); }, 480); };
+  const cancel = () => clearTimeout(timer);
+  node.addEventListener('pointerdown', start);
+  node.addEventListener('pointerup', cancel);
+  node.addEventListener('pointerleave', cancel);
+  node.addEventListener('pointercancel', cancel);
+  node.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!fired) fn(); });
+  node.addEventListener('click', (e) => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+}
+
+// --- sheets ---
+let sheetEls = null;
+function openSheet(build) {
+  closeSheet();
+  const scrim = el('div', 'scrim');
+  scrim.onclick = closeSheet;
+  const sheet = el('div', 'sheet');
+  sheet.setAttribute('role', 'dialog');
+  sheet.append(el('div', 'sheet-grab'));
+  build(sheet);
+  document.body.append(scrim, sheet);
+  sheetEls = [scrim, sheet];
+}
+function closeSheet() {
+  sheetEls?.forEach((n) => n.remove());
+  sheetEls = null;
+}
+
+function sheetTitleRow(dev, conn) {
+  const title = el('div', 'sheet-title');
+  const dot = el('span', 'sdot');
+  dot.dataset.s = conn?.status || 'connecting';
+  title.append(dot, document.createTextNode(deviceLabel(dev)));
+  return title;
+}
+
+function connSubtitle(conn) {
+  if (!conn) return 'connecting…';
+  if (conn.status === 'connected') {
+    const path = conn.metrics?.path?.selected;
+    const rtt = conn.metrics?.path?.rtt_ms;
+    return [conn.agent, path && path !== 'unknown' ? `${path}${rtt != null ? ` · ${rtt}ms` : ''}` : null]
+      .filter(Boolean).join(' · ') || 'connected';
+  }
+  return conn.lastDetail || conn.status;
+}
+
+function machineMenu(dev) {
+  const conn = connFor(dev.id);
+  openSheet((sheet) => {
+    sheet.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
+    const actions = [
+      ['Reconnect', () => { closeSheet(); chipTapReconnect(dev); }, conn?.status === 'connected'],
+      ['Rename', () => renameSheet(dev)],
+      ['Details', () => detailsSheet(dev)],
+      ['Forget machine', () => forgetSheet(dev), false, true],
+    ];
+    for (const [label, fn, disabled, danger] of actions) {
+      const row = el('button', 'action-row' + (danger ? ' danger' : ''), label);
+      if (disabled) row.setAttribute('disabled', '');
+      else row.onclick = fn;
+      sheet.append(row);
+    }
+  });
+}
+
+function chipTapReconnect(dev) {
+  const conn = connFor(dev.id) || connectDevice(dev);
+  clearTimeout(conn.retryTimer);
+  conn.retryTimer = null;
+  conn.backoffMs = BACKOFF_BASE_MS;
+  dialConn(conn);
+  toast(`Reconnecting to ${deviceLabel(dev)}…`);
+}
+
+function renameSheet(dev) {
+  openSheet((sheet) => {
+    sheet.append(el('div', 'sheet-title', `Rename ${deviceLabel(dev)}`));
+    sheet.append(el('div', 'sheet-sub', 'Local nickname only — the computer keeps its hostname.'));
+    const input = el('input', 'field');
+    input.value = dev.name || '';
+    input.placeholder = dev.id.slice(0, 8);
+    input.maxLength = 24;
+    const btns = el('div', 'sheet-btns');
+    const cancel = el('button', 'btn', 'Cancel');
+    cancel.onclick = closeSheet;
+    const save = el('button', 'btn btn-accent', 'Save');
+    save.onclick = () => {
+      const v = input.value.trim();
+      updateDevice(dev.id, { name: v || null });
+      closeSheet();
+      renderChips();
+      renderSessions();
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') save.onclick(); };
+    btns.append(cancel, save);
+    sheet.append(input, btns);
+    setTimeout(() => input.select(), 60);
+  });
+}
+
+function detailsSheet(dev) {
+  const conn = connFor(dev.id);
+  openSheet((sheet) => {
+    sheet.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
+    const rows = [
+      ['status', conn?.status || 'connecting'],
+      ['agent', conn?.agent || '—'],
+      ['node id', dev.id],
+      ['relay', dev.relay || '—'],
+      ['sessions', conn?.threads ? String(conn.threads.length) : '—'],
+      ['last connected', dev.lastConnectedAt ? rel(dev.lastConnectedAt) : '—'],
+      ['last error', dev.lastError || '—'],
+    ];
+    for (const [k, v] of rows) {
+      const kv = el('div', 'kv');
+      kv.append(el('span', 'k', k), el('span', 'v', v));
+      sheet.append(kv);
+    }
+  });
+}
+
+function forgetSheet(dev) {
+  openSheet((sheet) => {
+    sheet.append(el('div', 'sheet-title', `Forget ${deviceLabel(dev)}?`));
+    sheet.append(el('div', 'sheet-sub', 'Removes the pairing and its sessions from this phone. Nothing is deleted on the computer — re-pair any time with a new QR.'));
+    const btns = el('div', 'sheet-btns');
+    const cancel = el('button', 'btn', 'Cancel');
+    cancel.onclick = closeSheet;
+    const doit = el('button', 'btn btn-danger', 'Forget machine');
+    doit.onclick = () => {
+      closeSheet();
+      dropConn(dev.id);
+      state.devices = state.devices.filter((d) => d.id !== dev.id);
+      persistDevices(state.devices);
+      if (state.filter === dev.id) state.filter = 'all';
+      if (!state.devices.length) { showUnpaired(); return; }
+      renderChips();
+      renderSessions();
+      toast(`Forgot ${deviceLabel(dev)}. Scan its QR again to re-pair.`);
+    };
+    btns.append(cancel, doit);
+    sheet.append(btns);
+  });
+}
+
+function addMachineSheet() {
+  openSheet((sheet) => {
+    sheet.append(el('div', 'sheet-title', 'Pair another machine'));
+    const sub = el('div', 'sheet-sub');
+    sub.append('Run ', el('code', null, 'doggypile pair'), ' on the other computer, then scan its QR code with this phone. It joins the list — nothing here is replaced.');
+    sheet.append(sub);
+    const input = el('input', 'field');
+    input.placeholder = 'or paste a pair link…';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    const btns = el('div', 'sheet-btns');
+    const cancel = el('button', 'btn', 'Close');
+    cancel.onclick = closeSheet;
+    const add = el('button', 'btn btn-accent', 'Add from link');
+    add.onclick = () => {
+      const text = input.value.trim();
+      const hashIdx = text.indexOf('#');
+      const frag = new URLSearchParams(hashIdx >= 0 ? text.slice(hashIdx + 1) : text);
+      const node = frag.get('node');
+      const token = frag.get('token');
+      if (!node || !token) { toast('That doesn’t look like a pair link.'); return; }
+      let dev = state.devices.find((d) => d.id === node);
+      if (dev) {
+        Object.assign(dev, { token, relay: frag.get('relay'), addrs: frag.getAll('addr') });
+        if (frag.get('name')) dev.name = frag.get('name');
+        dropConn(dev.id); // stale transport used the old token
+      } else {
+        dev = { id: node, name: frag.get('name'), token, relay: frag.get('relay'), addrs: frag.getAll('addr'), addedAt: Date.now() };
+        state.devices.push(dev);
+      }
+      persistDevices(state.devices);
+      closeSheet();
+      connectDevice(dev, { resetBackoff: true });
+      renderChips();
+      renderSessions();
+      toast(`Pairing ${deviceLabel(dev)}…`);
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') add.onclick(); };
+    btns.append(cancel, add);
+    sheet.append(input, btns);
+  });
 }
 
 // --- sessions list ---
 function sectionHead() {
   const row = el('div', 'section-head');
-  row.append(el('span', 'section-title', 'Sessions'));
+  const scope = state.filter === 'all' ? 'Sessions' : `Sessions · ${deviceLabel(state.devices.find((d) => d.id === state.filter))}`;
+  row.append(el('span', 'section-title', scope));
   const add = el('button', 'btn btn-accent btn-small');
   add.append(icon('plus', 'icon btn-icon'), el('span', null, 'New'));
   add.setAttribute('aria-label', 'New session');
-  add.onclick = newThread;
+  add.onclick = newThreadFlow;
   row.append(add);
   return row;
 }
@@ -349,33 +772,57 @@ function skeletonList(n = 5) {
   return wrap;
 }
 
-async function showSessions() {
+// Navigation-level entry: leave any chat, then paint whatever the pool has.
+function showSessions() {
   state.threadId = null;
   state.threadTitle = '';
+  state.threadDeviceId = null;
+  if (VT) $('#main').style.viewTransitionName = ''; // chat-card belongs to the row again
   setHeader(brandEl());
   showComposer(false);
-  $('#main').replaceChildren(sectionHead(), skeletonList());
+  renderChips();
+  renderSessions();
+}
 
-  let res;
-  try {
-    res = await state.rpc.request('thread/list', {});
-  } catch (e) {
-    const retry = el('button', 'btn', 'Try again');
-    retry.onclick = showSessions;
-    $('#main').replaceChildren(sectionHead(), stateBox({
-      icon: 'warn',
-      title: 'Couldn’t load sessions',
-      body: e?.message || String(e),
-      action: retry,
-    }));
-    return;
+const tsVal = (t) => {
+  const raw = t.updatedAt || t.recencyAt;
+  if (!raw) return 0;
+  const n = typeof raw === 'number' ? raw : Date.parse(raw);
+  return Number.isFinite(n) ? (n < 10_000_000_000 ? n * 1000 : n) : 0;
+};
+
+// Data-level (re)paint of the merged list. Called whenever any machine's
+// connection state or thread list changes while the list is on screen.
+function renderSessions() {
+  if (inChat()) return;
+  const conns = [...state.conns.values()].filter((c) => state.filter === 'all' || c.dev.id === state.filter);
+  const merged = [];
+  for (const conn of conns) {
+    for (const t of conn.threads || []) merged.push({ t, conn });
   }
-  if (state.threadId) return; // user already opened something while loading
+  merged.sort((a, b) => tsVal(b.t) - tsVal(a.t));
 
-  const threads = res?.data || [];
-  if (!threads.length) {
+  if (!merged.length) {
+    const waiting = conns.some((c) => c.status === 'connecting' || (c.status === 'connected' && c.threads === null));
+    if (waiting) {
+      $('#main').replaceChildren(sectionHead(), skeletonList());
+      return;
+    }
+    const allDead = conns.length && conns.every((c) => c.status === 'offline' || c.status === 'expired' || c.status === 'noagent');
+    if (allDead) {
+      const retry = el('button', 'btn', 'Retry now');
+      retry.onclick = retryAllStale;
+      const which = state.filter === 'all' && state.devices.length > 1 ? 'any of your machines' : 'this machine';
+      $('#main').replaceChildren(sectionHead(), stateBox({
+        icon: 'warn',
+        title: `Can’t reach ${which}`,
+        body: conns.map((c) => `${deviceLabel(c.dev)}: ${c.lastDetail || c.status}`).join('\n'),
+        action: retry,
+      }));
+      return;
+    }
     const start = el('button', 'btn btn-accent', 'Start a session');
-    start.onclick = newThread;
+    start.onclick = newThreadFlow;
     $('#main').replaceChildren(sectionHead(), stateBox({
       icon: 'chat',
       title: 'No sessions yet',
@@ -386,34 +833,83 @@ async function showSessions() {
   }
 
   const list = el('div', 'sessions view');
-  for (const t of threads) {
+  const showMachine = state.devices.length > 1;
+  for (const { t, conn } of merged) {
     const title = t.name || t.preview || 'Untitled session';
     const row = el('button', 'session');
     const main = el('div', 'session-main');
     main.append(el('div', 'session-title', title));
     const meta = el('div', 'session-meta');
+    if (showMachine) {
+      const chip = el('span', 'mchip');
+      const dot = el('span', 'sdot');
+      dot.dataset.s = conn.status;
+      chip.append(dot, document.createTextNode(deviceLabel(conn.dev)));
+      meta.append(chip);
+    }
     const dir = short(t.cwd);
     if (dir) meta.append(el('span', 'session-dir', dir));
     const when = rel(t.updatedAt || t.recencyAt);
     if (when) meta.append(el('span', 'session-time', when));
     main.append(meta);
     row.append(main, icon('chevronRight', 'icon session-chevron'));
-    row.onclick = () => navigateToThread(t.id, title);
+    // Pop-morph target: coming back from a chat, its old row inflates back
+    // into place. Consumed one-shot so later repaints can't duplicate names.
+    if (state.lastChat && state.lastChat.deviceId === conn.dev.id && state.lastChat.threadId === t.id) {
+      markVt(row, 'chat-card');
+      markVt(row.querySelector('.session-title'), 'chat-title');
+      state.lastChat = null;
+    }
+    row.onclick = () => {
+      markVt(row, 'chat-card');
+      markVt(row.querySelector('.session-title'), 'chat-title');
+      navigate(() => navigateToThread(conn.dev.id, t.id, title));
+    };
     list.append(row);
   }
   $('#main').replaceChildren(sectionHead(), list);
 }
 
-async function newThread() {
+// Every session lives on one machine, so creating one needs a target:
+// the active filter if it's a machine, the only machine, or a picker.
+function newThreadFlow() {
+  if (state.filter !== 'all') return newThread(state.filter);
+  const connected = state.devices.filter((d) => connFor(d.id)?.status === 'connected');
+  if (state.devices.length === 1) return newThread(state.devices[0].id);
+  if (connected.length === 1) return newThread(connected[0].id);
+  openSheet((sheet) => {
+    sheet.append(el('div', 'sheet-title', 'New session on…'));
+    for (const dev of state.devices) {
+      const conn = connFor(dev.id);
+      const ok = conn?.status === 'connected';
+      const row = el('button', 'action-row');
+      if (!ok) row.setAttribute('disabled', '');
+      const dot = el('span', 'sdot');
+      dot.dataset.s = conn?.status || 'connecting';
+      const main = el('div', 'action-main');
+      main.append(document.createTextNode(deviceLabel(dev)), el('span', 'action-sub', connSubtitle(conn)));
+      row.append(dot, main);
+      if (ok) row.onclick = () => { closeSheet(); newThread(dev.id); };
+      sheet.append(row);
+    }
+  });
+}
+
+async function newThread(deviceId) {
+  const conn = connFor(deviceId);
+  if (conn?.status !== 'connected') {
+    toast(`${deviceLabel(conn?.dev || { id: deviceId })} isn’t connected.`);
+    return;
+  }
   if (state.creatingThread) return;
   state.creatingThread = true;
   try {
-    const res = await state.rpc.request('thread/start', {
+    const res = await conn.rpc.request('thread/start', {
       approvalPolicy: 'never',
       sandbox: 'danger-full-access',
     });
     const id = res?.thread?.id;
-    if (id) await navigateToThread(id, 'New session');
+    if (id) await navigateToThread(deviceId, id, 'New session');
   } catch (e) {
     toast(`Couldn’t start a session: ${e?.message || e}`);
   } finally {
@@ -433,26 +929,41 @@ const chat = {
 // User-initiated navigation into a thread: records a history entry so the
 // platform back gesture/button returns to the session list. Reconnect-resume
 // and popstate call openThread directly to avoid stacking duplicate entries.
-function navigateToThread(id, title) {
-  history.pushState({ threadId: id, title: title || '' }, '');
-  return openThread(id, title);
+function navigateToThread(deviceId, id, title) {
+  history.pushState({ deviceId, threadId: id, title: title || '' }, '');
+  return openThread(deviceId, id, title);
 }
 
-async function openThread(id, title) {
+async function openThread(deviceId, id, title) {
+  state.threadDeviceId = deviceId;
   state.threadId = id;
   if (title) state.threadTitle = title;
   state.projection = createProjection();
   chat.nodes.clear();
   chat.log = null;
-  setHeader(backBtn(), el('div', 'topbar-title', state.threadTitle || 'Session'));
+  state.lastChat = { deviceId, threadId: id };
+  const conn = connFor(deviceId);
+  const dev = conn?.dev || state.devices.find((d) => d.id === deviceId);
+  const titleEl = el('div', 'topbar-title', state.threadTitle || 'Session');
+  if (VT) titleEl.style.viewTransitionName = 'chat-title'; // push/pop morph partner
+  setHeader(backBtn(), titleEl);
+  if (VT) $('#main').style.viewTransitionName = 'chat-card'; // the pane the row expands into
+  renderChips(); // hides the row while in chat
   showComposer(true);
+  $('#input').placeholder = `Message ${conn?.agent || 'the agent'} on ${deviceLabel(dev) || 'your computer'}`;
+  if (conn?.status !== 'connected' || !conn.rpc) {
+    // Not connected (yet). dialConn re-enters openThread when this machine
+    // comes up; until then, show where we are.
+    $('#main').replaceChildren(stateBox({ spinner: true, body: `Connecting to ${deviceLabel(dev) || 'your computer'}…` }));
+    return;
+  }
   $('#main').replaceChildren(stateBox({ spinner: true, body: 'Loading conversation…' }));
   // Resume to subscribe to live turn events, then hydrate history. A freshly
   // started thread isn't materialized until its first message, so thread/read
   // can fail — that's fine, we just start with an empty log.
-  await state.rpc.request('thread/resume', { threadId: id }).catch(() => {});
-  const res = await state.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null);
-  if (state.threadId !== id) return; // navigated away while loading
+  await conn.rpc.request('thread/resume', { threadId: id }).catch(() => {});
+  const res = await conn.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null);
+  if (state.threadId !== id || state.threadDeviceId !== deviceId) return; // navigated away while loading
   if (res?.thread) state.projection.seedFromThread(res.thread);
   renderChat();
 }
@@ -661,7 +1172,8 @@ function updateJump() {
   $('#jump').hidden = !(inChat && away);
 }
 
-function onNotify(msg) {
+function onNotify(conn, msg) {
+  if (conn.dev.id !== state.threadDeviceId) return; // event from a machine we're not looking at
   if (msg.params?.threadId && msg.params.threadId !== state.threadId) return;
   if (msg.method === 'turn/started') { state.turnActive = true; scheduleRenderChat(); return; }
   if (msg.method === 'turn/completed' || msg.method === 'turn/failed') { state.turnActive = false; scheduleRenderChat(); return; }
@@ -679,7 +1191,12 @@ function onNotify(msg) {
 async function send() {
   const box = $('#input');
   const text = box.value.trim();
+  const conn = activeConn();
   if (!text || !state.threadId) return;
+  if (!conn?.rpc || conn.status !== 'connected') {
+    toast(`${deviceLabel(conn?.dev) || 'This machine'} isn’t connected — hang on.`);
+    return;
+  }
   box.value = '';
   autoResize();
   const localMessageId = state.projection?.addLocalUserMessage(text);
@@ -687,7 +1204,7 @@ async function send() {
   chat.forceStick = true;
   scheduleRenderChat();
   try {
-    await state.rpc.request('turn/start', {
+    await conn.rpc.request('turn/start', {
       threadId: state.threadId,
       input: [{ type: 'text', text, text_elements: [] }],
     });
@@ -701,7 +1218,8 @@ async function send() {
 }
 
 function interrupt() {
-  if (state.threadId) state.rpc.request('turn/interrupt', { threadId: state.threadId }).catch(() => {});
+  const conn = activeConn();
+  if (state.threadId && conn?.rpc) conn.rpc.request('turn/interrupt', { threadId: state.threadId }).catch(() => {});
 }
 
 // --- small helpers ---
@@ -731,10 +1249,6 @@ $('#jump').onclick = () => {
   main.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });
 };
 $('#main').addEventListener('scroll', updateJump, { passive: true });
-$('#status').onclick = () => {
-  const detail = state.statusDetail || $('#status').title;
-  toast(detail ? `${state.status} — ${detail.replace(/\n/g, ' · ')}` : state.status);
-};
 $('#input').addEventListener('input', autoResize);
 $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
@@ -742,9 +1256,10 @@ $('#input').addEventListener('keydown', (e) => {
 window.addEventListener('popstate', (e) => {
   state.threadId = e.state?.threadId || null;
   state.threadTitle = e.state?.title || '';
-  if (!state.rpc) return; // not connected yet; connectAndSync lands on the right view
-  if (state.threadId) openThread(state.threadId, state.threadTitle);
-  else showSessions();
+  state.threadDeviceId = e.state?.deviceId || (state.threadId ? state.devices[0]?.id : null);
+  if (!state.devices.length) return;
+  if (state.threadId) navigate(() => openThread(state.threadDeviceId, state.threadId, state.threadTitle));
+  else navigate(() => showSessions());
 });
 
 boot();

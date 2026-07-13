@@ -12,15 +12,15 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <title>doggypile</title>
-  <link rel="stylesheet" href="./styles.css?v=20260712-ui" />
+  <link rel="stylesheet" href="./styles.css?v=20260712-md1" />
 </head>
 <body>
   <header id="header" class="topbar">
     <div id="header-left" class="topbar-left">
       <span class="brand"><span class="brand-name">doggypile</span></span>
     </div>
-    <button id="status" class="status" data-state="connecting" aria-live="polite">connecting</button>
   </header>
+  <div id="chips" class="chips" role="group" aria-label="Machines" hidden></div>
   <main id="main">
     <div class="state"><div class="spinner" aria-label="Loading"></div></div>
   </main>
@@ -37,6 +37,6 @@
     </button>
   </footer>
   <div id="toast" class="toast" role="alert" hidden></div>
-  <script type="module" src="./app.js?v=20260712-ui"></script>
+  <script type="module" src="./app.js?v=20260712-md1"></script>
 </body>
 </html>
