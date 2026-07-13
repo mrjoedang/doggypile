@@ -51,19 +51,32 @@ if [ "$(uname -s)" = "Darwin" ] && command -v xattr >/dev/null 2>&1; then
   xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
 fi
 
-if command -v codex >/dev/null 2>&1; then
-  codex_status="found"
-else
-  codex_status="missing"
+agent_status="missing"
+for agent in codex opencode; do
+  if command -v "$agent" >/dev/null 2>&1; then
+    agent_status="found"
+    break
+  fi
+done
+
+echo "Installed: $BIN"
+if [ "$agent_status" = "missing" ]; then
+  echo "note: no supported coding-agent CLI found on PATH — install one, or pick one from the phone UI."
+fi
+
+# When we have a terminal, finish setup right here: doggypile's bare
+# invocation registers the login autostart, starts the daemon, and prints
+# the pairing QR. Set DOGGYPILE_NO_START=1 to skip (e.g. in scripts/CI).
+if [ -t 1 ] && [ -z "${DOGGYPILE_NO_START:-}" ]; then
+  echo ""
+  "$BIN"
+  exit $?
 fi
 
 cat <<MSG
-Installed: $BIN
-Codex CLI: $codex_status
 
-Next steps:
-  1. Ensure Codex CLI is installed and authenticated.
-  2. Run: doggypile
+To finish setup (autostart + daemon + pairing QR), run:
+  $BIN
 
 If '$INSTALL_DIR' is not on your PATH, add it to your shell profile.
 MSG

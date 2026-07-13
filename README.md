@@ -12,25 +12,24 @@ Requires at least one supported local coding-agent CLI to be installed and authe
 curl -fsSL https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh | sh
 ```
 
-## Usage
+One command does everything: installs the binary, registers the daemon to start automatically at login (launchd on macOS, systemd on Linux), starts it, and prints a pairing QR. Scan the QR with your phone, or open the printed URL.
 
-Start doggypile and print a pairing QR:
+To pair another device later, run `doggypile` again.
 
-```sh
-doggypile
-```
-
-Scan the QR code with your phone, or open the printed URL.
-
-Useful commands:
+## Commands
 
 ```sh
-doggypile pair      # print a fresh pairing URL + QR
-doggypile serve     # run the daemon
-doggypile web       # serve the embedded PWA locally on :8123
-doggypile stop      # stop the daemon
-doggypile status    # show daemon status
+doggypile            # make sure the daemon is running + print a pairing QR
+doggypile status     # show daemon status
+doggypile pair       # print a fresh pairing URL + QR
+doggypile web        # serve the embedded PWA locally on :8123
+doggypile stop       # stop the daemon (autostart will respawn it)
+doggypile uninstall  # remove the login autostart and stop the supervised daemon
 ```
+
+The daemon stays in the background and comes back on its own after crashes and reboots. To actually get rid of it, use `doggypile uninstall`.
+
+Pairing URLs are one-time use. Anyone who pairs gets code execution through the local agent, so only share pairing links with devices you trust.
 
 ## Development
 
