@@ -55,6 +55,30 @@ const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
 const inChat = () => !!state.threadId;
 
+// --- haptics ---
+// iOS Safari has no vibration API. The one thing that ticks (iOS 18+) is
+// toggling a native switch control — Safari 17.4's <input type="checkbox"
+// switch> — during a real user gesture, which fires the system switch
+// haptic. That's an undocumented side effect: if Apple removes it, this
+// silently becomes a no-op, which is the intended failure mode. Android
+// gets navigator.vibrate. Call sites are deliberately few — commitments
+// and state changes, never mere touches — so keep it that way.
+let hapticSwitch = null;
+function haptic() {
+  if (navigator.vibrate) { navigator.vibrate(10); return; }
+  if (!hapticSwitch) {
+    hapticSwitch = document.createElement('input');
+    hapticSwitch.type = 'checkbox';
+    hapticSwitch.setAttribute('switch', '');
+    hapticSwitch.tabIndex = -1;
+    hapticSwitch.setAttribute('aria-hidden', 'true');
+    // Must be rendered (display:none suppresses the haptic), just not visible.
+    hapticSwitch.style.cssText = 'position:fixed;top:-100px;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.append(hapticSwitch);
+  }
+  hapticSwitch.click(); // only ticks when called inside a user gesture
+}
+
 // --- view transitions ---
 // Navigation-level swaps only (sessions <-> chat, filter changes), and only
 // a plain crossfade — shared-element morphs proved too distracting for an
@@ -497,7 +521,7 @@ function renderChips() {
   const all = el('button', 'chip-btn', 'All');
   all.setAttribute('aria-pressed', String(state.filter === 'all'));
   if (totalCount) all.append(el('span', 'cnt', String(totalCount)));
-  all.onclick = () => navigate(() => { state.filter = 'all'; renderChips(); renderSessions(); });
+  all.onclick = () => { if (state.filter !== 'all') haptic(); navigate(() => { state.filter = 'all'; renderChips(); renderSessions(); }); };
   bar.append(all);
 
   for (const dev of state.devices) {
@@ -542,6 +566,7 @@ function chipTap(dev) {
     installOnConn(conn);
     return;
   }
+  haptic();
   navigate(() => {
     state.filter = state.filter === dev.id ? 'all' : dev.id; // same-tap clears
     renderChips();
@@ -552,7 +577,7 @@ function chipTap(dev) {
 function attachLongPress(node, fn) {
   let timer = null;
   let fired = false;
-  const start = () => { fired = false; timer = setTimeout(() => { fired = true; fn(); }, 480); };
+  const start = () => { fired = false; timer = setTimeout(() => { fired = true; haptic(); fn(); }, 480); };
   const cancel = () => clearTimeout(timer);
   node.addEventListener('pointerdown', start);
   node.addEventListener('pointerup', cancel);
@@ -683,6 +708,7 @@ function forgetSheet(dev) {
     cancel.onclick = closeSheet;
     const doit = el('button', 'btn btn-danger', 'Forget machine');
     doit.onclick = () => {
+      haptic();
       closeSheet();
       dropConn(dev.id);
       purgeThreadCache(dev.id);
@@ -1251,6 +1277,7 @@ async function send() {
     toast(`${deviceLabel(conn?.dev) || 'This machine'} isn’t connected — hang on.`);
     return;
   }
+  haptic();
   box.value = '';
   autoResize();
   const localMessageId = state.projection?.addLocalUserMessage(text);
@@ -1273,7 +1300,10 @@ async function send() {
 
 function interrupt() {
   const conn = activeConn();
-  if (state.threadId && conn?.rpc) conn.rpc.request('turn/interrupt', { threadId: state.threadId }).catch(() => {});
+  if (state.threadId && conn?.rpc) {
+    haptic();
+    conn.rpc.request('turn/interrupt', { threadId: state.threadId }).catch(() => {});
+  }
 }
 
 // --- small helpers ---
