@@ -56,27 +56,34 @@ const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) :
 const inChat = () => !!state.threadId;
 
 // --- haptics ---
-// iOS Safari has no vibration API. The one thing that ticks (iOS 18+) is
-// toggling a native switch control — Safari 17.4's <input type="checkbox"
-// switch> — during a real user gesture, which fires the system switch
-// haptic. That's an undocumented side effect: if Apple removes it, this
-// silently becomes a no-op, which is the intended failure mode. Android
-// gets navigator.vibrate. Call sites are deliberately few — commitments
-// and state changes, never mere touches — so keep it that way.
-let hapticSwitch = null;
+// iOS Safari has no vibration API, and it does NOT fire a haptic for
+// programmatic toggles of a switch control — only for a physical tap on
+// one. So the trick (per tijnjh/ios-haptics) is to overlay a full-size,
+// invisible native switch (<input type="checkbox" switch>, iOS 17.4+)
+// inside the button: the finger really toggles a real switch (system
+// haptic), and the click bubbles on to the button's own handler. If Apple
+// ever removes the control, the overlay is just an invisible checkbox —
+// silent, harmless. Android gets navigator.vibrate in the handlers instead.
+// Overlays go on deliberately few controls — commitments and state
+// changes, never mere touches — keep it that way.
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function hapticize(btn) {
+  if (!IS_IOS || !btn || btn.querySelector('.hswitch')) return;
+  const sw = document.createElement('input');
+  sw.type = 'checkbox';
+  sw.setAttribute('switch', '');
+  sw.className = 'hswitch';
+  sw.tabIndex = -1;
+  sw.setAttribute('aria-hidden', 'true');
+  if (getComputedStyle(btn).position === 'static') btn.style.position = 'relative';
+  btn.append(sw);
+}
+
+// Android path: a real vibration API, called from the handlers.
 function haptic() {
-  if (navigator.vibrate) { navigator.vibrate(10); return; }
-  if (!hapticSwitch) {
-    hapticSwitch = document.createElement('input');
-    hapticSwitch.type = 'checkbox';
-    hapticSwitch.setAttribute('switch', '');
-    hapticSwitch.tabIndex = -1;
-    hapticSwitch.setAttribute('aria-hidden', 'true');
-    // Must be rendered (display:none suppresses the haptic), just not visible.
-    hapticSwitch.style.cssText = 'position:fixed;top:-100px;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.append(hapticSwitch);
-  }
-  hapticSwitch.click(); // only ticks when called inside a user gesture
+  navigator.vibrate?.(10);
 }
 
 // --- view transitions ---
@@ -521,6 +528,7 @@ function renderChips() {
   const all = el('button', 'chip-btn', 'All');
   all.setAttribute('aria-pressed', String(state.filter === 'all'));
   if (totalCount) all.append(el('span', 'cnt', String(totalCount)));
+  if (state.filter !== 'all') hapticize(all); // only ticks when tapping it changes something
   all.onclick = () => { if (state.filter !== 'all') haptic(); navigate(() => { state.filter = 'all'; renderChips(); renderSessions(); }); };
   bar.append(all);
 
@@ -537,6 +545,7 @@ function renderChips() {
     if (n) chip.append(el('span', 'cnt', String(n)));
     chip.onclick = () => chipTap(dev);
     attachLongPress(chip, () => machineMenu(dev));
+    hapticize(chip);
     bar.append(chip);
   }
 
@@ -707,6 +716,7 @@ function forgetSheet(dev) {
     const cancel = el('button', 'btn', 'Cancel');
     cancel.onclick = closeSheet;
     const doit = el('button', 'btn btn-danger', 'Forget machine');
+    hapticize(doit);
     doit.onclick = () => {
       haptic();
       closeSheet();
@@ -1328,6 +1338,8 @@ function rel(ts) {
 
 $('#send').onclick = send;
 $('#stop').onclick = interrupt;
+hapticize($('#send'));
+hapticize($('#stop'));
 $('#jump').onclick = () => {
   const main = $('#main');
   main.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });

@@ -842,6 +842,21 @@ code {
 html.vt .view { animation: none; }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.16s; }
 
+/* ---------- haptic overlays ---------- */
+/* Invisible native switch stretched over a button (iOS): the physical tap
+   toggles it, which is the only thing iOS fires its switch haptic for. */
+.hswitch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+button:disabled .hswitch { pointer-events: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
