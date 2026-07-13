@@ -132,7 +132,7 @@ function backBtn() {
   const b = el('button', 'back-btn');
   b.append(icon('chevronLeft', 'icon back-icon'), el('span', null, 'Sessions'));
   b.setAttribute('aria-label', 'Back to sessions');
-  b.onclick = showSessions;
+  b.onclick = () => history.back();
   return b;
 }
 function showComposer(show) {
@@ -173,6 +173,11 @@ function toast(msg) {
 }
 
 async function boot() {
+  // Restore the thread from the history entry so a reload lands back in it.
+  if (history.state?.threadId) {
+    state.threadId = history.state.threadId;
+    state.threadTitle = history.state.title || '';
+  }
   state.creds = readCreds();
   if (!state.creds) {
     setStatus('unpaired', 'not paired');
@@ -393,7 +398,7 @@ async function showSessions() {
     if (when) meta.append(el('span', 'session-time', when));
     main.append(meta);
     row.append(main, icon('chevronRight', 'icon session-chevron'));
-    row.onclick = () => openThread(t.id, title);
+    row.onclick = () => navigateToThread(t.id, title);
     list.append(row);
   }
   $('#main').replaceChildren(sectionHead(), list);
@@ -408,7 +413,7 @@ async function newThread() {
       sandbox: 'danger-full-access',
     });
     const id = res?.thread?.id;
-    if (id) await openThread(id, 'New session');
+    if (id) await navigateToThread(id, 'New session');
   } catch (e) {
     toast(`Couldn’t start a session: ${e?.message || e}`);
   } finally {
@@ -424,6 +429,14 @@ const chat = {
   workingEl: null,
   forceStick: false, // one-shot: scroll to bottom regardless of position (e.g. after send)
 };
+
+// User-initiated navigation into a thread: records a history entry so the
+// platform back gesture/button returns to the session list. Reconnect-resume
+// and popstate call openThread directly to avoid stacking duplicate entries.
+function navigateToThread(id, title) {
+  history.pushState({ threadId: id, title: title || '' }, '');
+  return openThread(id, title);
+}
 
 async function openThread(id, title) {
   state.threadId = id;
@@ -725,6 +738,13 @@ $('#status').onclick = () => {
 $('#input').addEventListener('input', autoResize);
 $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+window.addEventListener('popstate', (e) => {
+  state.threadId = e.state?.threadId || null;
+  state.threadTitle = e.state?.title || '';
+  if (!state.rpc) return; // not connected yet; connectAndSync lands on the right view
+  if (state.threadId) openThread(state.threadId, state.threadTitle);
+  else showSessions();
 });
 
 boot();
