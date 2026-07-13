@@ -36,3 +36,5 @@ Pairing URLs are one-time use. Anyone who pairs gets code execution through the 
 `bun dev` builds the daemon, serves `web/` on the LAN, and prints a pairing QR.
 
 For UI work, serve `web/` statically and open `/?mock` for the scripted demo.
+
+`bun install` enables the repo git hooks (release-safety lint). `bun run release:check` simulates the next release version bump without touching git state.

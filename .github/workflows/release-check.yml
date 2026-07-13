@@ -1,0 +1,38 @@
+name: Release Check
+
+# Validate on every change that the release bot would succeed: simulate the
+# next version bump and make sure the cargo workspace still resolves. Catches
+# manifest breakage (e.g. pinned internal dep versions) on the PR instead of
+# in release-auto after merge.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: doggypile-release-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulate:
+    name: Simulate next release
+    runs-on: ubuntu-24.04
+    if: ${{ github.event_name == 'pull_request' || !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Simulate release version bump
+        run: node scripts/publish.mjs --simulate

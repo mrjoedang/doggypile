@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const DRY_RUN = process.argv.includes('--dry-run');
+const SIMULATE = process.argv.includes('--simulate');
 const SKIP_PUSH = process.argv.includes('--skip-push');
 const SKIP_TAG = process.argv.includes('--skip-tag') || process.argv.includes('--skip-release');
 const NO_WAIT = process.argv.includes('--no-wait');
@@ -64,7 +65,11 @@ function writeVersions(version) {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   pkg.version = version;
   writeFileSync('package.json', `${JSON.stringify(pkg, null, 2)}\n`);
-  run('cargo', ['generate-lockfile'], { capture: false, cwd: 'daemon' });
+  // `update --workspace` re-syncs only the workspace members' own entries in
+  // Cargo.lock. Unlike `generate-lockfile` it does not re-resolve every
+  // transitive dependency, so releases build with the lockfile that was
+  // actually tested in the repo.
+  run('cargo', ['update', '--workspace'], { capture: false, cwd: 'daemon' });
 }
 function remoteTagExists(tag) { try { return run('git', ['ls-remote', '--tags', 'origin', tag]).includes(tag); } catch { return false; } }
 function localTagExists(tag) { return runOk('git', ['rev-parse', '-q', '--verify', `refs/tags/${tag}`]); }
@@ -92,6 +97,22 @@ const entries = commitEntries(tag ? `${tag}..HEAD` : 'HEAD');
 const bump = recommendedBump(entries, Boolean(tag));
 console.log(`Latest tag: ${tag ?? '(none)'}`);
 console.log(`Recommended bump: ${bump ?? 'none'}`);
+if (SIMULATE) {
+  // Validate that a release from this tree would succeed, without mutating
+  // git state: apply the version bump, resolve the workspace, restore.
+  // When no release-worthy commits exist yet, validate a hypothetical patch
+  // bump anyway — manifest breakage should surface on the PR that adds it,
+  // not on the unrelated feat/fix that later triggers a release.
+  const simVersion = bumpVersion(tag ? tag.slice(1) : currentVersion(), bump ?? 'patch');
+  console.log(`Simulating release v${simVersion}...`);
+  try {
+    writeVersions(simVersion);
+  } finally {
+    run('git', ['checkout', '--', 'daemon/Cargo.toml', 'daemon/Cargo.lock', 'package.json']);
+  }
+  console.log(`Simulation OK: v${simVersion} version bump resolves cleanly.`);
+  process.exit(0);
+}
 if (!bump) process.exit(0);
 const version = bumpVersion(tag ? tag.slice(1) : currentVersion(), bump);
 const nextTag = `v${version}`;

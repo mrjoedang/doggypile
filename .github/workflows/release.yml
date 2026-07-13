@@ -52,7 +52,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build binary
-        run: cargo build --release -p doggypile --bin doggypile
+        run: cargo build --release --locked -p doggypile --bin doggypile
         working-directory: daemon
 
       - name: Strip binary

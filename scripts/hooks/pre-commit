@@ -1,0 +1,16 @@
+#!/bin/sh
+# Fast release-safety lint. Internal workspace dependencies must stay
+# path-only: a `version = "..."` pin breaks the release bot's version bump
+# (cargo can no longer resolve `^0.1` once the workspace is bumped to 0.2.0).
+# CI backstop: .github/workflows/release-check.yml simulates the full bump.
+set -eu
+
+if git diff --cached --name-only | grep -q '^daemon/Cargo.toml$'; then
+  pinned="$(git show :daemon/Cargo.toml | grep -nE 'path = "crates/[^"]*".*version' || true)"
+  if [ -n "$pinned" ]; then
+    echo "error: internal path dependencies in daemon/Cargo.toml must not pin a version" >&2
+    echo "       (it breaks release version bumps — see release-check workflow):" >&2
+    echo "$pinned" >&2
+    exit 1
+  fi
+fi
