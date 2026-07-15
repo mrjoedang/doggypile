@@ -598,7 +598,7 @@ function showUnpaired() {
   const body1 = el('div', 'pair-step-body');
   body1.append(
     el('h2', 'pair-step-title', 'Install on your computer'),
-    el('p', 'pair-step-desc', 'Open a terminal on the machine where your coding agents live and run:'),
+    el('p', 'pair-step-desc', 'Run this in the terminal where your agents live'),
   );
   const pre = el('pre');
   pre.append(
