@@ -202,6 +202,12 @@ code {
 .screen { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 #home, #sessionview { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 
+/* No chrome before boot has decided which screen owns first paint: the strip
+   and screen stay invisible until app.js adds body.ready, then fade in as one.
+   Toasts and overlays live outside these roots and are never caught. */
+.wstrip, .screen { opacity: 0; }
+body.ready .wstrip, body.ready .screen { opacity: 1; transition: opacity 0.18s ease; }
+
 /* entry animation for freshly swapped views */
 .view { animation: view-in 0.22s ease-out; }
 @keyframes view-in {
@@ -361,27 +367,25 @@ body.unpaired .wstrip { display: none; }
   line-height: 1.6;
   padding: 14px 16px;
   white-space: pre;
-  color: var(--text);
+  color: var(--text-mild); /* plain neutral mono; the button carries the accent */
 }
 .pair-prompt { color: var(--text-faint); user-select: none; }
-.pair-flag { color: var(--text-dim); }
-.pair-url { color: var(--accent); }
 
-/* standalone chip beside the command chip, never over it; opaque in every state */
+/* standalone accent chip beside the command chip, never over it; opaque in every state */
 .pair-copy {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 46px;
-  color: var(--text-dim);
+  color: var(--accent);
   background: #0a090c;
-  border: 1px solid var(--border);
+  border: 1px solid #423522; /* opaque warm border so the action reads at rest */
   border-radius: 10px;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.pair-copy:hover { color: var(--text); border-color: var(--accent-strong); background: #1c1b20; }
-.pair-copy:active { transform: translateY(1px); background: #232227; }
+.pair-copy:hover { color: var(--accent-strong); border-color: var(--accent-strong); background: #1f1811; }
+.pair-copy:active { transform: translateY(1px); background: #292015; }
 .pair-copy.copied { color: var(--ok); border-color: #5f856c; background: #1c2a20; }
 .pair-copy .icon { width: 15px; height: 15px; }
 

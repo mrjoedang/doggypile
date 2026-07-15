@@ -500,6 +500,7 @@ function startPool() {
   if (state.screen === 'session' && activeTab()) selectTab(state.active, { history: 'none' });
   else showHome();
   connectAllDevices();
+  document.body.classList.add('ready'); // first paint: fade the built UI in
 }
 
 // --- multi-tab coordination ---
@@ -549,6 +550,7 @@ function showFollowerBox() {
     body: 'doggypile is already connected from another tab or window. Close it and this one takes over automatically.',
     action: use,
   }));
+  document.body.classList.add('ready'); // first paint: fade the built UI in
 }
 
 tabChannel?.addEventListener('message', async (e) => {
@@ -601,11 +603,7 @@ function showUnpaired() {
   const pre = el('pre');
   pre.append(
     el('span', 'pair-prompt', '$ '),
-    'curl ',
-    el('span', 'pair-flag', '-fsSL'),
-    ' ',
-    el('span', 'pair-url', 'https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh'),
-    ' | sh',
+    'curl -fsSL https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh | sh',
   );
   const scroll = el('div', 'pair-cmd-scroll');
   scroll.append(pre);
@@ -661,6 +659,7 @@ function showUnpaired() {
   const view = el('div', 'pair-onboard view');
   view.append(head, card, foot);
   $('#homelist').replaceChildren(view);
+  document.body.classList.add('ready'); // first paint: fade the built UI in
 }
 
 async function installOnConn(conn) {
