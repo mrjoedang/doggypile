@@ -163,25 +163,33 @@ pub async fn restart_daemon() -> anyhow::Result<()> {
     }
 
     let supervisor = crate::service::is_installed().unwrap_or(false);
-    if supervisor {
+    let supervisor_rearmed = if supervisor {
         // Re-bind the supervisor entry to current_exe. Best-effort: if the
         // user's launchd/systemd state is wedged we still want to spawn the
         // new daemon ourselves below, not bail.
-        if let Err(error) = crate::service::install() {
-            eprintln!(
-                "warning: re-installing autostart entry failed: {error:#}; falling back to manual respawn"
-            );
+        match crate::service::install() {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!(
+                    "warning: re-installing autostart entry failed: {error:#}; falling back to manual respawn"
+                );
+                false
+            }
         }
-    }
+    } else {
+        false
+    };
 
-    // Give a launchd/systemd supervisor a moment to bring the daemon back
-    // up via the rewritten unit. macOS kickstart usually wins inside ~1s;
-    // systemd-user is similar. We poll a few seconds before falling back.
-    let supervisor_started = wait_until(Duration::from_secs(5), || async {
-        ipc::is_daemon_running().await
-    })
-    .await
-    .is_ok();
+    // Give a successfully re-armed launchd/systemd supervisor a moment to
+    // bring the daemon back up via the rewritten unit. When there is no
+    // supervisor or re-installing it failed, spawn immediately.
+    let supervisor_started = if let Some(timeout) = supervisor_wait_timeout(supervisor_rearmed) {
+        wait_until(timeout, || async { ipc::is_daemon_running().await })
+            .await
+            .is_ok()
+    } else {
+        false
+    };
 
     if !supervisor_started {
         spawn_serve_detached().context("spawning new daemon")?;
@@ -193,6 +201,10 @@ pub async fn restart_daemon() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn supervisor_wait_timeout(supervisor_rearmed: bool) -> Option<Duration> {
+    supervisor_rearmed.then_some(Duration::from_secs(5))
 }
 
 /// Spawn `current_exe serve` as a session-detached background process so
@@ -306,5 +318,11 @@ mod tests {
         status.build_id = None;
         let reason = daemon_restart_reason(&status).unwrap();
         assert!(reason.contains("build id"));
+    }
+
+    #[test]
+    fn supervisor_wait_requires_successful_rearm() {
+        assert_eq!(supervisor_wait_timeout(false), None);
+        assert_eq!(supervisor_wait_timeout(true), Some(Duration::from_secs(5)));
     }
 }
