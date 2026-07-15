@@ -1,4 +1,6 @@
-use std::process::Command;
+use std::{fs, process::Command};
+
+const WASM_CURRENT_PATH: &str = "../../../web/vendor/iroh/current.txt";
 
 fn main() {
     println!("cargo:rerun-if-changed=../../../.git/HEAD");
@@ -8,6 +10,20 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=src");
+
+    let wasm_version = fs::read_to_string(WASM_CURRENT_PATH)
+        .unwrap_or_else(|error| panic!("reading {WASM_CURRENT_PATH}: {error}"));
+    let wasm_version = wasm_version.trim();
+    assert!(
+        wasm_version.len() == 64
+            && wasm_version
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "{WASM_CURRENT_PATH} must contain a lowercase full SHA-256"
+    );
+    println!("cargo:rerun-if-changed={WASM_CURRENT_PATH}");
+    println!("cargo:rerun-if-changed=../../../web/vendor/iroh/{wasm_version}");
+    println!("cargo:rustc-env=DOGGYPILE_WASM_VERSION={wasm_version}");
 
     let sha = git_output_text(&["rev-parse", "--short=12", "HEAD"])
         .map(|text| text.trim().to_string())
