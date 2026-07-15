@@ -4,6 +4,7 @@ pub mod index;
 pub mod opencode_client;
 pub mod opencode_proc;
 pub mod pty;
+mod sinks;
 pub mod sse;
 pub mod state;
 pub mod translate;
