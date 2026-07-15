@@ -1,10 +1,10 @@
-use doggypile_bridge_core::Conn;
 use serde_json::{Value, json};
 
 use crate::approval;
 use crate::index::ThreadIndex;
 use crate::opencode_client::OpencodeClient;
 use crate::pty::PtyState;
+use crate::sinks::SessionSinks;
 use crate::state::{BridgeState, PartKind, TokenUsageBreakdown};
 use crate::translate::parts::message_to_turn_items_with_context;
 use crate::translate::tool::{
@@ -16,10 +16,10 @@ use crate::translate::tool::{
 /// module. Fields are all `&` references; the struct derives `Copy` so handlers
 /// can pass it through without churn at every call site.
 ///
-/// Created once per inbound SSE frame in `handlers::spawn_event_pump`.
+/// Created once per inbound SSE frame in the bridge-wide event pump.
 #[derive(Clone, Copy)]
 pub struct RouteContext<'a> {
-    pub conn: &'a Conn,
+    pub sinks: &'a SessionSinks,
     pub index: &'a ThreadIndex,
     pub state: &'a BridgeState,
     pub client: &'a OpencodeClient,
@@ -84,7 +84,7 @@ pub async fn route_event(rc: RouteContext<'_>, event: Value) {
                 "busy" | "retry" => json!({"type": "active", "activeFlags": []}),
                 _ => json!({"type": "idle"}),
             };
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "thread/status/changed",
                 json!({"threadId":thread_id,"status":status}),
             );
@@ -97,7 +97,7 @@ pub async fn route_event(rc: RouteContext<'_>, event: Value) {
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(active.started_at);
                 let duration_ms = (completed_at - active.started_at) * 1000;
-                let _ = rc.conn.notifier().send_notification(
+                rc.sinks.send_notification(
                     "turn/completed",
                     json!({
                         "threadId": thread_id,
@@ -131,20 +131,20 @@ pub async fn route_event(rc: RouteContext<'_>, event: Value) {
         }
         "todo.updated" => {
             let plan = props.get("todos").cloned().unwrap_or(json!([]));
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "turn/plan/updated",
                 json!({"threadId":thread_id,"turnId":turn_id,"plan":plan}),
             );
         }
         "session.compacted" => {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "thread/compacted",
                 json!({"threadId":thread_id,"turnId":turn_id}),
             );
         }
         "session.error" => {
             let error = normalize_turn_error(props.get("error").unwrap_or(&Value::Null));
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "error",
                 json!({"threadId":thread_id,"turnId":turn_id,"error":error,"willRetry":false}),
             );
@@ -155,16 +155,28 @@ pub async fn route_event(rc: RouteContext<'_>, event: Value) {
         "session.diff" => {
             let diff = props.get("diff").cloned().unwrap_or(json!([]));
             let unified = file_diffs_to_unified(&diff);
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "turn/diff/updated",
                 json!({"threadId":thread_id,"turnId":turn_id,"diff":unified}),
             );
         }
         "permission.asked" => {
-            handle_permission_asked(rc, &thread_id, &turn_id, &props);
+            handle_permission_asked(
+                rc,
+                &thread_id,
+                &turn_id,
+                active.as_ref().map(|turn| turn.owner_node_id.as_str()),
+                &props,
+            );
         }
         "question.asked" => {
-            handle_question_asked(rc, &thread_id, &turn_id, &props);
+            handle_question_asked(
+                rc,
+                &thread_id,
+                &turn_id,
+                active.as_ref().map(|turn| turn.owner_node_id.as_str()),
+                &props,
+            );
         }
         _ => {}
     }
@@ -173,7 +185,13 @@ pub async fn route_event(rc: RouteContext<'_>, event: Value) {
 /// Spawn the codex `requestUserInput` round-trip for `question.asked`. Same
 /// non-blocking pattern as approvals — questions can sit for minutes while
 /// the user thinks.
-fn handle_question_asked(rc: RouteContext<'_>, thread_id: &str, turn_id: &str, props: &Value) {
+fn handle_question_asked(
+    rc: RouteContext<'_>,
+    thread_id: &str,
+    turn_id: &str,
+    owner_node_id: Option<&str>,
+    props: &Value,
+) {
     let request_id = match props.get("id").and_then(Value::as_str) {
         Some(id) => id.to_string(),
         None => {
@@ -247,9 +265,20 @@ fn handle_question_asked(rc: RouteContext<'_>, thread_id: &str, turn_id: &str, p
         "questions": questions_out,
     });
 
-    let notifier = rc.conn.notifier().clone();
     let client = rc.client.clone();
     let question_count = questions_in.len();
+    let Some(notifier) = rc.sinks.request_notifier(owner_node_id) else {
+        tracing::warn!(%request_id, "question has no live client sink; replying with empty answers");
+        tokio::spawn(async move {
+            let _ = client
+                .question_reply(
+                    &request_id,
+                    json!(vec![Vec::<String>::new(); question_count]),
+                )
+                .await;
+        });
+        return;
+    };
     tokio::spawn(async move {
         let result = notifier
             .request(
@@ -297,7 +326,13 @@ fn answers_in_question_order(response: &Value, count: usize) -> Vec<Vec<String>>
 
 /// Spawn the codex `requestApproval` round-trip without blocking the SSE pump
 /// (a single approval can take up to `DEFAULT_APPROVAL_TIMEOUT`, ~5 minutes).
-fn handle_permission_asked(rc: RouteContext<'_>, thread_id: &str, turn_id: &str, props: &Value) {
+fn handle_permission_asked(
+    rc: RouteContext<'_>,
+    thread_id: &str,
+    turn_id: &str,
+    owner_node_id: Option<&str>,
+    props: &Value,
+) {
     let request_id = match props.get("id").and_then(Value::as_str) {
         Some(id) => id.to_string(),
         None => {
@@ -361,8 +396,20 @@ fn handle_permission_asked(rc: RouteContext<'_>, thread_id: &str, turn_id: &str,
         }
     };
 
-    let notifier = rc.conn.notifier().clone();
     let client = rc.client.clone();
+    let Some(notifier) = rc.sinks.request_notifier(owner_node_id) else {
+        tracing::warn!(%request_id, "permission has no live client sink; forwarding reject");
+        tokio::spawn(async move {
+            let _ = client
+                .permission_reply(
+                    &request_id,
+                    approval::ApprovalOutcome::Rejected.as_opencode_reply(),
+                    None,
+                )
+                .await;
+        });
+        return;
+    };
     tokio::spawn(async move {
         let outcome = match approval::request_approval(&notifier, &method, params, None).await {
             Ok(outcome) => outcome,
@@ -406,7 +453,7 @@ fn handle_message_updated(rc: RouteContext<'_>, props: &Value, thread_id: &str, 
     }
 
     if rc.state.mark_message_started(message_id) {
-        let _ = rc.conn.notifier().send_notification(
+        rc.sinks.send_notification(
             "item/started",
             json!({
                 "threadId": thread_id,
@@ -437,7 +484,7 @@ fn handle_message_updated(rc: RouteContext<'_>, props: &Value, thread_id: &str, 
         for reasoning_part_id in rc.state.take_reasoning_parts(message_id) {
             let content = rc.state.take_reasoning_text(&reasoning_part_id);
             if rc.state.mark_part_completed(&reasoning_part_id) {
-                let _ = rc.conn.notifier().send_notification(
+                rc.sinks.send_notification(
                     "item/completed",
                     json!({
                         "threadId": thread_id,
@@ -454,7 +501,7 @@ fn handle_message_updated(rc: RouteContext<'_>, props: &Value, thread_id: &str, 
             rc.state.forget_part(&reasoning_part_id);
         }
         let text = rc.state.take_message_text(message_id);
-        let _ = rc.conn.notifier().send_notification(
+        rc.sinks.send_notification(
             "item/completed",
             json!({
                 "threadId": thread_id,
@@ -539,7 +586,7 @@ async fn emit_idle_message_fallback(
         if item_type != Some("agentMessage") {
             if rc.state.mark_part_completed(&item_id) {
                 if rc.state.mark_part_started(&item_id) {
-                    let _ = rc.conn.notifier().send_notification(
+                    rc.sinks.send_notification(
                         "item/started",
                         json!({
                             "threadId": thread_id,
@@ -548,7 +595,7 @@ async fn emit_idle_message_fallback(
                         }),
                     );
                 }
-                let _ = rc.conn.notifier().send_notification(
+                rc.sinks.send_notification(
                     "item/completed",
                     json!({
                         "threadId": thread_id,
@@ -569,7 +616,7 @@ async fn emit_idle_message_fallback(
             .unwrap_or("")
             .to_string();
         if rc.state.mark_message_started(&item_id) {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/started",
                 json!({
                     "threadId": thread_id,
@@ -585,7 +632,7 @@ async fn emit_idle_message_fallback(
             );
         }
         if !text.is_empty() {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/agentMessage/delta",
                 json!({
                     "threadId": thread_id,
@@ -595,7 +642,7 @@ async fn emit_idle_message_fallback(
                 }),
             );
         }
-        let _ = rc.conn.notifier().send_notification(
+        rc.sinks.send_notification(
             "item/completed",
             json!({
                 "threadId": thread_id,
@@ -706,7 +753,7 @@ fn handle_message_part_updated(
             if let Some(message_id) = part.get("messageID").and_then(Value::as_str) {
                 rc.state.register_reasoning_part(message_id, part_id);
             }
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/started",
                 json!({
                     "threadId": thread_id,
@@ -727,7 +774,7 @@ fn handle_message_part_updated(
     if rc.state.mark_part_started(part_id)
         && let Some(item) = tool_part_to_item_with_context(part, tool_context)
     {
-        let _ = rc.conn.notifier().send_notification(
+        rc.sinks.send_notification(
             "item/started",
             json!({
                 "threadId": thread_id,
@@ -740,7 +787,7 @@ fn handle_message_part_updated(
     if tool_part_status_is_terminal(part) {
         let first_completion = rc.state.mark_part_completed(part_id);
         if first_completion && let Some(item) = tool_part_to_item_with_context(part, tool_context) {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/completed",
                 json!({
                     "threadId": thread_id,
@@ -754,7 +801,7 @@ fn handle_message_part_updated(
         // it for tools that return `None` from tool_part_to_item.
         if first_completion {
             for (method, params) in tool_part_side_notifications(part, thread_id, turn_id) {
-                let _ = rc.conn.notifier().send_notification(method, params);
+                rc.sinks.send_notification(method, params);
             }
         }
         rc.state.forget_part(part_id);
@@ -792,7 +839,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             // are an opencode internal detail. Sending part_id here would
             // make a client tracking deltas-by-itemId fail to correlate.
             let item_id = message_id.unwrap_or(part_id);
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/agentMessage/delta",
                 json!({
                     "threadId": thread_id,
@@ -806,7 +853,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             // Accumulate so the trailing `item/completed` Reasoning carries
             // the full content.
             rc.state.append_reasoning_text(part_id, delta);
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/reasoning/textDelta",
                 json!({
                     "threadId": thread_id,
@@ -818,7 +865,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             );
         }
         (PartKind::ToolBash, "output") => {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/commandExecution/outputDelta",
                 json!({
                     "threadId": thread_id,
@@ -829,7 +876,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             );
         }
         (PartKind::ToolMcp, "output") => {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/mcpToolCall/progress",
                 json!({
                     "threadId": thread_id,
@@ -840,7 +887,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             );
         }
         (PartKind::ToolFileChange, "output") => {
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/fileChange/outputDelta",
                 json!({
                     "threadId": thread_id,
@@ -854,7 +901,7 @@ fn handle_message_part_delta(rc: RouteContext<'_>, props: &Value, thread_id: &st
             // Unknown part kind but a text-shaped delta — fall back to
             // assistant message so a delta arriving before its
             // `message.part.updated` doesn't get silently dropped.
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "item/agentMessage/delta",
                 json!({
                     "threadId": thread_id,
@@ -917,7 +964,7 @@ async fn handle_session_created(rc: RouteContext<'_>, props: &Value) {
             return;
         }
     };
-    let _ = rc.conn.notifier().send_notification(
+    rc.sinks.send_notification(
         "thread/started",
         json!({"thread": binding_to_thread(&binding)}),
     );
@@ -945,7 +992,7 @@ async fn handle_session_updated(rc: RouteContext<'_>, props: &Value, thread_id: 
         if new_name != binding.name {
             binding.name = new_name.clone();
             changed = true;
-            let _ = rc.conn.notifier().send_notification(
+            rc.sinks.send_notification(
                 "thread/name/updated",
                 json!({
                     "threadId": thread_id,
@@ -969,9 +1016,7 @@ async fn handle_session_updated(rc: RouteContext<'_>, props: &Value, thread_id: 
             } else {
                 "thread/unarchived"
             };
-            let _ = rc
-                .conn
-                .notifier()
+            rc.sinks
                 .send_notification(method, json!({"threadId": thread_id}));
         }
     }
@@ -1063,9 +1108,7 @@ async fn route_global_event(rc: RouteContext<'_>, event_type: &str, props: &Valu
             true
         }
         "installation.update-available" => {
-            let _ = rc
-                .conn
-                .notifier()
+            rc.sinks
                 .send_notification("deprecationNotice", deprecation_notice_for_update(props));
             true
         }
@@ -1103,7 +1146,7 @@ fn route_pty_event(rc: RouteContext<'_>, event_type: &str, props: &Value) -> boo
 fn emit_token_usage(rc: RouteContext<'_>, thread_id: &str, turn_id: &str, part: &Value) {
     let last = step_finish_tokens(part);
     let snapshot = rc.state.record_token_usage(thread_id, last);
-    let _ = rc.conn.notifier().send_notification(
+    rc.sinks.send_notification(
         "thread/tokenUsage/updated",
         token_usage_payload(thread_id, turn_id, &snapshot),
     );

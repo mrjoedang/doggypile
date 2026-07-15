@@ -40,7 +40,7 @@ async fn initialize_thread_start_turn_start_smoke() {
     let init = read_until_response(&mut read, 1).await;
     assert_eq!(
         init["result"]["userAgent"],
-        "doggypile-opencode-bridge/0.1.0"
+        concat!("doggypile-opencode-bridge/", env!("CARGO_PKG_VERSION"))
     );
 
     send(

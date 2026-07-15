@@ -2,14 +2,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use doggypile_bridge_core::{Bridge, Conn, JsonRpcError};
 use async_trait::async_trait;
+use doggypile_bridge_core::{Bridge, Conn, JsonRpcError};
 use serde_json::{Value, json};
 
 use crate::index::{OpencodeBinding, ThreadIndex};
 use crate::opencode_client::OpencodeClient;
 use crate::opencode_proc::OpencodeRuntime;
 use crate::pty::PtyState;
+use crate::sinks::SessionSinks;
 use crate::sse::SseConsumer;
 use crate::state::{ActiveTurn, BridgeState};
 use crate::translate::{
@@ -28,6 +29,16 @@ pub struct OpencodeBridge {
     state: Arc<BridgeState>,
     pty: Arc<PtyState>,
     sse: SseConsumer,
+    sinks: Arc<SessionSinks>,
+    _event_pump: EventPump,
+}
+
+struct EventPump(tokio::task::JoinHandle<()>);
+
+impl Drop for EventPump {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl OpencodeBridge {
@@ -45,13 +56,26 @@ impl OpencodeBridge {
         let index = Arc::new(ThreadIndex::open(state_dir.join("threads.json")).await?);
         let client = OpencodeClient::new(runtime.base_url.clone(), runtime.auth_token.clone());
         let sse = SseConsumer::spawn(client.clone());
+        let state = Arc::new(BridgeState::default());
+        let pty = Arc::new(PtyState::new());
+        let sinks = Arc::new(SessionSinks::default());
+        let event_pump = Self::spawn_event_pump(
+            &sse,
+            Arc::clone(&index),
+            Arc::clone(&state),
+            Arc::clone(&pty),
+            Arc::clone(&sinks),
+            client.clone(),
+        );
         Ok(Self {
             _runtime: runtime,
             client,
             index,
-            state: Arc::new(BridgeState::default()),
-            pty: Arc::new(PtyState::new()),
+            state,
+            pty,
             sse,
+            sinks,
+            _event_pump: EventPump(event_pump),
         })
     }
 
@@ -63,23 +87,30 @@ impl OpencodeBridge {
         OpencodeBridgeBuilder::default()
     }
 
-    /// Subscribe a per-connection task that translates SSE events into codex
-    /// notifications on `ctx`. The task ends when the connection closes (the
-    /// notifier `send_notification` will start failing, but the broadcast
-    /// receiver simply continues and any send failure is dropped).
-    fn spawn_event_pump(&self, ctx: &Conn) {
-        let mut rx = self.sse.subscribe();
-        let index = Arc::clone(&self.index);
-        let state = Arc::clone(&self.state);
-        let pty = Arc::clone(&self.pty);
-        let client = self.client.clone();
-        let ctx = ctx.clone();
+    /// Active subscribers to the process-wide OpenCode SSE consumer.
+    /// Exposed for diagnostics and lifecycle regression tests.
+    pub fn event_receiver_count(&self) -> usize {
+        self.sse.receiver_count()
+    }
+
+    /// Start the bridge-wide SSE router. OpenCode has one process-wide event
+    /// stream and one shared translation state, so each event is translated
+    /// exactly once before its notifications fan out to initialized sessions.
+    fn spawn_event_pump(
+        sse: &SseConsumer,
+        index: Arc<ThreadIndex>,
+        state: Arc<BridgeState>,
+        pty: Arc<PtyState>,
+        sinks: Arc<SessionSinks>,
+        client: OpencodeClient,
+    ) -> tokio::task::JoinHandle<()> {
+        let mut rx = sse.subscribe();
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
                     Ok(event) => {
                         let rc = crate::translate::events::RouteContext {
-                            conn: &ctx,
+                            sinks: &sinks,
                             index: &index,
                             state: &state,
                             client: &client,
@@ -93,7 +124,7 @@ impl OpencodeBridge {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
-        });
+        })
     }
 
     async fn handle_thread_start(&self, params: Value) -> Result<Value, JsonRpcError> {
@@ -182,6 +213,7 @@ impl OpencodeBridge {
                     .get("model")
                     .and_then(Value::as_str)
                     .map(ToOwned::to_owned),
+                owner_node_id: ctx.session().node_id.clone(),
                 session_id: Some(binding.session_id.clone()),
                 current_assistant_message_id: None,
                 started_at: turn_started_at,
@@ -854,7 +886,7 @@ impl Bridge for OpencodeBridge {
         if method != "initialized" {
             return;
         }
-        self.spawn_event_pump(ctx);
+        self.sinks.register(ctx.session());
     }
 }
 

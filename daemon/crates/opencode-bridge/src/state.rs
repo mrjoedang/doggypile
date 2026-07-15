@@ -32,6 +32,10 @@ pub enum PartKind {
 pub struct ActiveTurn {
     pub turn_id: String,
     pub model: Option<String>,
+    /// Durable client node that initiated this turn. Interactive permission
+    /// and question requests prefer this owner, including while it is briefly
+    /// detached and relying on replay.
+    pub owner_node_id: String,
     /// Opencode session id this turn was launched against. Cached so SSE
     /// translators can correlate session-scoped events back to the codex
     /// `(threadId, turnId)` pair without re-reading the index.
