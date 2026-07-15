@@ -4,7 +4,9 @@
   "private": true,
   "description": "Single-binary daemon and browser PWA for chatting with local coding agents from your phone over iroh.",
   "scripts": {
-    "dev": "bun dev.mjs",
+    "dev:mock": "bun dev.mjs --mock",
+    "dev:web": "bun dev.mjs --web",
+    "dev:full": "bun dev.mjs --full",
     "stop": "cd daemon && cargo run -q -p doggypile --bin doggypile -- stop",
     "daemon": "cd daemon && cargo run -p doggypile --bin doggypile -- serve",
     "pair": "cd daemon && cargo run -q -p doggypile --bin doggypile -- pair",

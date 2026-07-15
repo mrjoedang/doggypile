@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-// One-command local dev: build the daemon, serve the PWA on the LAN, ensure the
-// daemon is running, and print a QR that opens the PWA already paired.
-// The daemon persists in the background (in the background); this process only
-// holds the static web server open. Ctrl-C stops serving (daemon keeps running;
-// `bun run stop` to stop it).
-import { spawnSync } from 'node:child_process';
+// Local PWA dev server with three explicit modes:
+//   --mock: serve UI with scripted in-browser data; no daemon work.
+//   --web: serve local web, pair via installed doggypile on PATH; no local build.
+//   --full: build this checkout's daemon, pair via target/debug/doggypile.
+// Ctrl-C stops serving. In connected modes, the daemon keeps running.
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { watch } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -17,6 +17,12 @@ const WEB = join(ROOT, 'web');
 const DAEMON_DIR = join(ROOT, 'daemon');
 const BIN = join(DAEMON_DIR, 'target', 'debug', 'doggypile');
 const PORT = Number(process.env.PORT || 8123);
+const modes = ['--mock', '--web', '--full'].filter((arg) => process.argv.includes(arg));
+if (modes.length !== 1) {
+  console.error('usage: bun dev.mjs --mock | --web | --full');
+  process.exit(1);
+}
+const MODE = modes[0].slice(2);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -52,10 +58,37 @@ function lanIp() {
   return '127.0.0.1';
 }
 
-// 1. build the daemon (fast no-op once built)
-console.log('doggypile: building daemon…');
-if (spawnSync('cargo', ['build', '-p', 'doggypile', '--bin', 'doggypile'], { cwd: DAEMON_DIR, stdio: 'inherit' }).status !== 0) {
-  console.error('doggypile: daemon build failed'); process.exit(1);
+function openBrowser(target) {
+  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', target] : [target];
+  const child = spawn(opener, args, { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
+function pairUrl(bin, baseUrl) {
+  const result = spawnSync(bin, ['pair', '--no-qr', '--url', baseUrl], { encoding: 'utf8' });
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.status !== 0) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    console.error(`doggypile: pairing failed via ${bin}`);
+    process.exit(1);
+  }
+  const out = result.stdout.trim();
+  const match = out.match(/https?:\/\/\S+#\S+/);
+  if (!match) {
+    if (out) process.stdout.write(`${out}\n`);
+    console.error(`doggypile: could not find pair URL in ${bin} output`);
+    process.exit(1);
+  }
+  return match[0];
+}
+
+// 1. in full mode, build the daemon (fast no-op once built)
+if (MODE === 'full') {
+  console.log('doggypile: building daemon…');
+  if (spawnSync('cargo', ['build', '-p', 'doggypile', '--bin', 'doggypile'], { cwd: DAEMON_DIR, stdio: 'inherit' }).status !== 0) {
+    console.error('doggypile: daemon build failed'); process.exit(1);
+  }
 }
 
 // 2. serve web/ on the LAN (browsers need correct wasm/module content types).
@@ -115,15 +148,20 @@ for (;;) {
 }
 if (port !== PORT) console.log(`doggypile: port ${PORT} busy (another bun dev, or \`doggypile web\`?) — using ${port}`);
 
-// 3. ensure the daemon is up and print the pairing URL + QR pointed at this server
+// 3. open the right local URL for this mode.
 const url = `http://${lanIp()}:${port}`;
-console.log('');
-if (spawnSync(BIN, ['pair', '--url', url], { stdio: 'inherit' }).status !== 0) {
-  console.error('doggypile: pairing failed (is `codex` on PATH?)'); process.exit(1);
+const browserUrl = MODE === 'mock' ? `${url}/?mock` : pairUrl(MODE === 'full' ? BIN : 'doggypile', url);
+openBrowser(browserUrl);
+
+console.log(`\n  PWA served at ${url}`);
+if (MODE === 'mock') {
+  console.log(`  Opened mock UI: ${browserUrl}`);
+  console.log('  Skipped daemon build/restart/pairing.');
+} else {
+  console.log(`  Opened paired UI: ${browserUrl}`);
+  console.log(MODE === 'web' ? '  Paired via installed `doggypile` on PATH; skipped local daemon build.' : '  Built and paired via this checkout\'s debug daemon.');
 }
-console.log(`\n  PWA served at ${url}  —  open the URL above or scan the QR (phone on same wifi).`);
-console.log(`  UI-only mode (no daemon needed): ${url}/?mock`);
 console.log('  Edits under web/ live-reload connected browsers.');
-console.log('  Ctrl-C stops serving. The daemon keeps running; `bun run stop` to stop it.\n');
+console.log(MODE === 'mock' ? '  Ctrl-C stops serving.\n' : '  Ctrl-C stops serving. The daemon keeps running; `bun run stop` to stop it.\n');
 
 process.on('SIGINT', () => { server.close(); process.exit(0); });
