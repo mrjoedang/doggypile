@@ -277,6 +277,150 @@ code {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- first-visit onboarding (unpaired) ---------- */
+/* This state owns a pure-black page. The workspace strip is hidden here: the
+   centered paw + wordmark replace its brand pill until a device is paired. */
+body.unpaired { background: #000; }
+body.unpaired .wstrip { display: none; }
+
+.pair-onboard {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 30px 4px 8px;
+}
+.pair-head { text-align: center; margin-bottom: 36px; }
+.pair-paw { display: inline-flex; width: 48px; height: 48px; color: var(--accent); margin-bottom: 14px; }
+.pair-paw svg { width: 100%; height: 100%; }
+.pair-wordmark { font-family: var(--font-mono); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.pair-tagline { margin-top: 8px; font-size: 15px; color: var(--text-dim); }
+
+.pair-card {
+  background: #121116; /* solid plane above the pure-black page */
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 28px 24px;
+}
+
+.pair-steps { list-style: none; display: flex; flex-direction: column; }
+.pair-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  column-gap: 16px;
+  padding-bottom: 32px;
+}
+.pair-step:last-child { padding-bottom: 0; }
+.pair-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 15.5px;
+  top: 38px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(180deg, var(--border-strong), var(--border));
+}
+.pair-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(240, 179, 94, 0.35);
+}
+.pair-step-body { min-width: 0; padding-top: 5px; }
+.pair-step-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 6px; }
+.pair-step-desc { font-size: 14px; line-height: 1.55; color: var(--text-dim); }
+
+.pair-cmd-row { display: flex; align-items: stretch; gap: 9px; margin-top: 12px; }
+.pair-cmd {
+  flex: 1;
+  min-width: 0;
+  background: #0a090c; /* deeper than --code-bg so the chip reads on the solid card */
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+.pair-cmd:hover { border-color: var(--border-strong); }
+.pair-cmd-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.pair-cmd pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 14px 16px;
+  white-space: pre;
+  color: var(--text);
+}
+.pair-prompt { color: var(--text-faint); user-select: none; }
+.pair-flag { color: var(--text-dim); }
+.pair-url { color: var(--accent); }
+
+/* standalone chip beside the command chip, never over it; opaque in every state */
+.pair-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  color: var(--text-dim);
+  background: #0a090c;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.pair-copy:hover { color: var(--text); border-color: var(--accent-strong); background: #1c1b20; }
+.pair-copy:active { transform: translateY(1px); background: #232227; }
+.pair-copy.copied { color: var(--ok); border-color: #5f856c; background: #1c2a20; }
+.pair-copy .icon { width: 15px; height: 15px; }
+
+.pair-note { margin-top: 10px; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
+
+.pair-hint {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #0a090c;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.pair-qr { display: inline-flex; width: 36px; height: 36px; flex: 0 0 auto; opacity: 0.9; }
+.pair-qr svg { width: 100%; height: 100%; }
+.pair-hint p { font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+
+.pair-foot { margin-top: 30px; text-align: center; }
+.pair-github {
+  display: inline-flex;
+  width: 21px;
+  height: 21px;
+  color: var(--text-faint);
+  transition: color 0.15s ease;
+}
+.pair-github:hover { color: var(--text-dim); }
+.pair-github svg { width: 100%; height: 100%; }
+
+@media (min-width: 720px) {
+  .pair-onboard { padding-top: 7vh; }
+  .pair-head { margin-bottom: 44px; }
+  .pair-wordmark { font-size: 30px; }
+  .pair-tagline { font-size: 16px; }
+  .pair-card { padding: 36px; }
+  .pair-cmd pre { font-size: 13px; }
+}
+
 /* ---------- home ---------- */
 .home { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: block; }
 .home-wrap { max-width: 720px; margin: 0 auto; width: 100%; padding: 18px 16px 32px; }

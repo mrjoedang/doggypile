@@ -35,7 +35,15 @@ const ICONS = {
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="21 3 21 9 15 9"/><path d="M20.5 13a8.5 8.5 0 1 1-2-7.5L21 9"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 6V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>',
   dots: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 12.5 10 17.5 19 7"/></svg>',
+  github: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>',
 };
+
+// Onboarding artwork (static, trusted): the icon.svg paw geometry and the
+// decorative QR glyph for the pairing hint chip.
+const PAW_LOGO = '<svg viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><ellipse cx="145" cy="228" rx="38" ry="46" transform="rotate(-18 145 228)"/><ellipse cx="216" cy="168" rx="40" ry="49" transform="rotate(-7 216 168)"/><ellipse cx="296" cy="168" rx="40" ry="49" transform="rotate(7 296 168)"/><ellipse cx="367" cy="228" rx="38" ry="46" transform="rotate(18 367 228)"/><path d="M256 250c-52 0-104 47-104 96 0 30 22 50 52 50 19 0 33-8 52-8s33 8 52 8c30 0 52-20 52-50 0-49-52-96-104-96z"/></svg>';
+const QR_GLYPH = '<svg viewBox="0 0 36 36" fill="none" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.5" stroke="#716e68" stroke-width="1.6"/><rect x="6.5" y="6.5" width="3" height="3" fill="#f0b35e"/><rect x="23" y="3" width="10" height="10" rx="1.5" stroke="#716e68" stroke-width="1.6"/><rect x="26.5" y="6.5" width="3" height="3" fill="#f0b35e"/><rect x="3" y="23" width="10" height="10" rx="1.5" stroke="#716e68" stroke-width="1.6"/><rect x="6.5" y="26.5" width="3" height="3" fill="#f0b35e"/><rect x="23" y="23" width="3.5" height="3.5" fill="#716e68"/><rect x="29.5" y="23" width="3.5" height="3.5" fill="#f0b35e"/><rect x="23" y="29.5" width="3.5" height="3.5" fill="#f0b35e"/><rect x="29.5" y="29.5" width="3.5" height="3.5" fill="#716e68"/><rect x="16" y="16" width="4" height="4" fill="#716e68"/></svg>';
+const INSTALL_CMD = 'curl -fsSL https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh | sh';
 const icon = (name, cls = 'icon') => {
   const s = el('span', cls);
   s.innerHTML = ICONS[name];
@@ -488,6 +496,7 @@ async function boot() {
 
 function startPool() {
   state.mode = 'normal';
+  document.body.classList.remove('unpaired');
   if (state.screen === 'session' && activeTab()) selectTab(state.active, { history: 'none' });
   else showHome();
   connectAllDevices();
@@ -523,6 +532,7 @@ async function ensureLeadership() {
 
 function showFollowerBox() {
   state.mode = 'follower';
+  document.body.classList.remove('unpaired');
   state.screen = 'home';
   showScreen('home');
   $('#home-bar').hidden = true;
@@ -551,21 +561,106 @@ tabChannel?.addEventListener('message', async (e) => {
   startPool(); // and resumes if leadership ever comes back
 });
 
+function copyText(text) {
+  const fallback = () => {
+    const ta = el('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.append(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch { /* best effort */ }
+    ta.remove();
+  };
+  if (!navigator.clipboard?.writeText) { fallback(); return Promise.resolve(); }
+  return navigator.clipboard.writeText(text).catch(fallback);
+}
+
+// First-visit onboarding: pure-black page owned by body.unpaired (the strip is
+// hidden; the centered logo + wordmark stand in for it).
 function showUnpaired() {
   state.mode = 'unpaired';
   state.screen = 'home';
   showScreen('home');
+  document.body.classList.add('unpaired');
   $('#home-bar').hidden = true;
   renderChips();
-  $('#homelist').replaceChildren(stateBox({
-    icon: 'paw',
-    title: 'Pair this device',
-    body: [
-      'Run ',
-      el('code', null, 'doggypile pair'),
-      ' on your computer, then scan the QR code with this phone to connect.',
-    ],
-  }));
+
+  const head = el('header', 'pair-head');
+  const paw = el('span', 'pair-paw');
+  paw.innerHTML = PAW_LOGO;
+  head.append(paw, el('h1', 'pair-wordmark', 'doggypile'), el('p', 'pair-tagline', 'Control your agents from anywhere'));
+
+  const step1 = el('li', 'pair-step');
+  const body1 = el('div', 'pair-step-body');
+  body1.append(
+    el('h2', 'pair-step-title', 'Install on your computer'),
+    el('p', 'pair-step-desc', 'Open a terminal on the machine where your coding agents live and run:'),
+  );
+  const pre = el('pre');
+  pre.append(
+    el('span', 'pair-prompt', '$ '),
+    'curl ',
+    el('span', 'pair-flag', '-fsSL'),
+    ' ',
+    el('span', 'pair-url', 'https://raw.githubusercontent.com/mrjoedang/doggypile/main/install.sh'),
+    ' | sh',
+  );
+  const scroll = el('div', 'pair-cmd-scroll');
+  scroll.append(pre);
+  const chip = el('div', 'pair-cmd');
+  chip.append(scroll);
+  const copyBtn = el('button', 'pair-copy');
+  copyBtn.type = 'button';
+  copyBtn.setAttribute('aria-label', 'Copy install command');
+  copyBtn.title = 'Copy install command';
+  const copyIcon = icon('copy');
+  copyBtn.append(copyIcon);
+  let copiedTimer = null;
+  copyBtn.onclick = () => copyText(INSTALL_CMD).then(() => {
+    copyBtn.classList.add('copied');
+    copyIcon.innerHTML = ICONS.check;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copyBtn.classList.remove('copied');
+      copyIcon.innerHTML = ICONS.copy;
+    }, 2000);
+  });
+  const cmdRow = el('div', 'pair-cmd-row');
+  cmdRow.append(chip, copyBtn);
+  const note = el('p', 'pair-note');
+  note.append('Already installed? Run ', el('code', null, 'doggypile'), ' again for a fresh QR.');
+  body1.append(cmdRow, note);
+  step1.append(el('div', 'pair-badge', '1'), body1);
+
+  const step2 = el('li', 'pair-step');
+  const body2 = el('div', 'pair-step-body');
+  const hint = el('div', 'pair-hint');
+  const qr = el('span', 'pair-qr');
+  qr.innerHTML = QR_GLYPH;
+  hint.append(qr, el('p', null, 'Scan the QR code and start chatting right away'));
+  body2.append(el('h2', 'pair-step-title', 'Pair with your phone'), hint);
+  step2.append(el('div', 'pair-badge', '2'), body2);
+
+  const steps = el('ol', 'pair-steps');
+  steps.append(step1, step2);
+  const card = el('section', 'pair-card');
+  card.append(steps);
+
+  const gh = el('a', 'pair-github');
+  gh.href = 'https://github.com/mrjoedang/doggypile';
+  gh.target = '_blank';
+  gh.rel = 'noopener noreferrer';
+  gh.setAttribute('aria-label', 'doggypile on GitHub');
+  gh.title = 'doggypile on GitHub';
+  gh.innerHTML = ICONS.github;
+  const foot = el('footer', 'pair-foot');
+  foot.append(gh);
+
+  const view = el('div', 'pair-onboard view');
+  view.append(head, card, foot);
+  $('#homelist').replaceChildren(view);
 }
 
 async function installOnConn(conn) {
