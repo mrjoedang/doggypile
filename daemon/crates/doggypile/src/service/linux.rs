@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use std::os::unix::fs::FileTypeExt;
+
 use anyhow::{Context, anyhow};
 
 use crate::paths;
@@ -73,12 +75,9 @@ pub(super) fn uninstall() -> anyhow::Result<()> {
 
 pub(super) fn is_installed() -> anyhow::Result<bool> {
     let unit_path = paths::systemd_unit_path()?;
-    if unit_path.exists() {
-        if systemd_user_session_available() {
-            let unit_name = systemd_unit_name(&unit_path)?;
-            return Ok(systemd_unit_is_enabled(&unit_name));
-        }
-        return Ok(true);
+    if unit_path.exists() && systemd_user_session_available() {
+        let unit_name = systemd_unit_name(&unit_path)?;
+        return Ok(systemd_unit_is_enabled(&unit_name));
     }
     Ok(paths::xdg_autostart_path()?.exists())
 }
@@ -186,11 +185,40 @@ fn render_autostart_desktop(exe: &Path) -> String {
 }
 
 fn systemd_user_session_available() -> bool {
+    let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR");
+    if !systemd_runtime_facts_available(
+        Path::new("/run/systemd/system"),
+        runtime_dir.as_deref().map(Path::new),
+    ) {
+        return false;
+    }
+
     Command::new("systemctl")
         .args(["--user", "show-environment"])
         .output()
-        .map(|o| o.status.success())
+        .map(|output| {
+            output.status.success() && systemd_environment_output_is_valid(&output.stdout)
+        })
         .unwrap_or(false)
+}
+
+fn systemd_runtime_facts_available(system_dir: &Path, runtime_dir: Option<&Path>) -> bool {
+    system_dir.is_dir()
+        && runtime_dir
+            .and_then(|dir| std::fs::metadata(dir.join("systemd/private")).ok())
+            .map(|metadata| metadata.file_type().is_socket())
+            .unwrap_or(false)
+}
+
+fn systemd_environment_output_is_valid(stdout: &[u8]) -> bool {
+    String::from_utf8_lossy(stdout).lines().any(|line| {
+        let Some((name, _value)) = line.split_once('=') else {
+            return false;
+        };
+        let mut chars = name.chars();
+        matches!(chars.next(), Some('_' | 'A'..='Z' | 'a'..='z'))
+            && chars.all(|ch| matches!(ch, '_' | 'A'..='Z' | 'a'..='z' | '0'..='9'))
+    })
 }
 
 fn has_xdg_session() -> bool {
@@ -219,18 +247,43 @@ fn systemd_unit_is_enabled(unit_name: &str) -> bool {
 }
 
 fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
-    let status = Command::new("systemctl")
+    let output = Command::new("systemctl")
         .args(args)
-        .status()
+        .output()
         .with_context(|| format!("running systemctl {}", args.join(" ")))?;
-    if !status.success() {
-        return Err(anyhow!(
+    if !output.status.success() {
+        let detail = concise_command_output(&output.stderr, &output.stdout);
+        let mut message = format!(
             "systemctl {} failed (exit {:?})",
             args.join(" "),
-            status.code()
-        ));
+            output.status.code()
+        );
+        if !detail.is_empty() {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        return Err(anyhow!(message));
     }
     Ok(())
+}
+
+fn concise_command_output(stderr: &[u8], stdout: &[u8]) -> String {
+    let bytes = if stderr.iter().any(|b| !b.is_ascii_whitespace()) {
+        stderr
+    } else {
+        stdout
+    };
+    let normalized = String::from_utf8_lossy(bytes)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut chars = normalized.chars();
+    let detail: String = chars.by_ref().take(300).collect();
+    if chars.next().is_some() {
+        format!("{detail}…")
+    } else {
+        detail
+    }
 }
 
 #[cfg(test)]
@@ -246,7 +299,10 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        path.push(format!("doggypile-svc-linux-{}-{stamp}", std::process::id()));
+        path.push(format!(
+            "doggypile-svc-linux-{}-{stamp}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&path).expect("temp dir");
         path
     }
@@ -256,18 +312,8 @@ mod tests {
         let body = format!(
             "#!/bin/sh\n\
              printf '%s\\n' \"$*\" >> \"{}\"\n\
-             case \"$*\" in\n\
-               \"--user show-environment\")\n\
-                 exit 1\n\
-                 ;;\n\
-               \"--user --version\")\n\
-                 printf 'systemd 999\\n'\n\
-                 exit 0\n\
-                 ;;\n\
-               *)\n\
-                 exit 0\n\
-                 ;;\n\
-             esac\n",
+             printf '%s\\n' '\"systemd\" is not running in this container'\n\
+             exit 0\n",
             log.display()
         );
         std::fs::write(&script, body).expect("write fake systemctl");
@@ -348,6 +394,62 @@ mod tests {
     }
 
     #[test]
+    fn systemd_runtime_facts_require_boot_and_user_manager_paths() {
+        let tmp = tempdir();
+        let system_dir = tmp.join("run/systemd/system");
+        let runtime_dir = tmp.join("runtime");
+
+        assert!(!systemd_runtime_facts_available(&system_dir, None));
+        assert!(!systemd_runtime_facts_available(
+            &system_dir,
+            Some(&runtime_dir)
+        ));
+
+        std::fs::create_dir_all(&system_dir).expect("system directory");
+        assert!(!systemd_runtime_facts_available(&system_dir, None));
+        assert!(!systemd_runtime_facts_available(
+            &system_dir,
+            Some(&runtime_dir)
+        ));
+
+        let private = runtime_dir.join("systemd/private");
+        std::fs::create_dir_all(private.parent().expect("private parent"))
+            .expect("runtime systemd directory");
+        std::fs::write(&private, b"").expect("regular private marker");
+        assert!(
+            !systemd_runtime_facts_available(&system_dir, Some(&runtime_dir)),
+            "a regular file must not be mistaken for the user-manager socket"
+        );
+        std::fs::remove_file(&private).expect("remove regular private marker");
+        let _private_socket = std::os::unix::net::UnixListener::bind(&private)
+            .expect("bind private user-manager socket");
+        assert!(systemd_runtime_facts_available(
+            &system_dir,
+            Some(&runtime_dir)
+        ));
+
+        std::fs::remove_dir_all(&system_dir).expect("remove system directory");
+        assert!(!systemd_runtime_facts_available(
+            &system_dir,
+            Some(&runtime_dir)
+        ));
+    }
+
+    #[test]
+    fn systemd_environment_output_requires_an_assignment() {
+        assert!(systemd_environment_output_is_valid(
+            b"HOME=/home/joe\nPATH=/usr/bin:/bin\n"
+        ));
+        assert!(systemd_environment_output_is_valid(b"_=/usr/bin/env\n"));
+        assert!(!systemd_environment_output_is_valid(b""));
+        assert!(!systemd_environment_output_is_valid(
+            b"\"systemd\" is not running in this container\n"
+        ));
+        assert!(!systemd_environment_output_is_valid(b"1INVALID=value\n"));
+        assert!(!systemd_environment_output_is_valid(b"BAD-NAME=value\n"));
+    }
+
+    #[test]
     fn install_rejects_headless_sessions_without_touching_systemd() {
         let mut env = TempHome::new();
         let tmp = tempdir();
@@ -359,6 +461,12 @@ mod tests {
         let path = std::env::join_paths([fake_bin.as_os_str()]).expect("join PATH");
         env.override_env(&[
             ("PATH", path.to_str().expect("PATH utf-8")),
+            (
+                "XDG_RUNTIME_DIR",
+                tmp.join("missing-runtime")
+                    .to_str()
+                    .expect("runtime path utf-8"),
+            ),
             ("XDG_CURRENT_DESKTOP", ""),
             ("XDG_SESSION_TYPE", ""),
         ]);
@@ -370,19 +478,14 @@ mod tests {
             "unexpected error: {msg}"
         );
 
-        let log_body = std::fs::read_to_string(&log).expect("read fake systemctl log");
         assert!(
-            log_body.contains("--user show-environment"),
-            "probe should check for a reachable user bus"
-        );
-        assert!(
-            !log_body.contains("daemon-reload"),
-            "install must not try to reload user units when the bus is unavailable"
+            !log.exists(),
+            "systemctl shim must not be invoked without systemd runtime facts"
         );
     }
 
     #[test]
-    fn is_installed_treats_existing_systemd_unit_as_installed_without_bus() {
+    fn is_installed_ignores_existing_unit_without_invoking_systemctl_without_runtime() {
         let mut home = TempHome::new();
         let tmp = tempdir();
         let log = tmp.join("systemctl.log");
@@ -393,6 +496,12 @@ mod tests {
         let path = std::env::join_paths([fake_bin.as_os_str()]).expect("join PATH");
         home.override_env(&[
             ("PATH", path.to_str().expect("PATH utf-8")),
+            (
+                "XDG_RUNTIME_DIR",
+                tmp.join("missing-runtime")
+                    .to_str()
+                    .expect("runtime path utf-8"),
+            ),
             ("XDG_CURRENT_DESKTOP", ""),
             ("XDG_SESSION_TYPE", ""),
         ]);
@@ -404,8 +513,46 @@ mod tests {
         std::fs::write(&unit_path, b"[Unit]\nDescription=doggypile\n").expect("write unit");
 
         assert!(
-            is_installed().expect("check installed"),
-            "unit on disk should count as installed"
+            !is_installed().expect("check installed"),
+            "an on-disk unit cannot supervise the daemon without its user manager"
+        );
+        assert!(
+            !log.exists(),
+            "systemctl shim must not be invoked without systemd runtime facts"
+        );
+    }
+
+    #[test]
+    fn run_systemctl_captures_failure_detail() {
+        let mut env = TempHome::new();
+        let tmp = tempdir();
+        let fake_bin = tmp.join("bin");
+        std::fs::create_dir_all(&fake_bin).expect("fake bin dir");
+        let script = fake_bin.join("systemctl");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf 'manager unavailable\\nmore detail\\n' >&2\nexit 7\n",
+        )
+        .expect("write failing systemctl");
+        let mut perms = std::fs::metadata(&script)
+            .expect("failing systemctl metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).expect("make failing systemctl executable");
+
+        let path = std::env::join_paths([fake_bin.as_os_str()]).expect("join PATH");
+        env.override_env(&[("PATH", path.to_str().expect("PATH utf-8"))]);
+
+        let err = run_systemctl(&["--user", "daemon-reload"])
+            .expect_err("failing systemctl should return an error");
+        let message = err.to_string();
+        assert!(
+            message.contains("exit Some(7)"),
+            "unexpected error: {message}"
+        );
+        assert!(
+            message.contains("manager unavailable more detail"),
+            "captured stderr missing from error: {message}"
         );
     }
 }
