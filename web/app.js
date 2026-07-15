@@ -1,13 +1,13 @@
-import { makeRpc } from './rpc.js?v=20260712-ui';
-import { createProjection } from './projection.js?v=20260712-ui';
-import { renderMarkdown } from './markdown.js?v=20260712-ui';
+import { makeRpc } from './rpc.js?v=20260714-tabs';
+import { createProjection } from './projection.js?v=20260714-tabs';
+import { renderMarkdown } from './markdown.js?v=20260714-tabs';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
 const wantMock = new URLSearchParams(location.search).has('mock');
 const mockMod = wantMock ? await import('./mock.js').catch(() => null) : null; // daemon builds don't ship mock.js
 const MOCK = !!mockMod;
-const { connect, installAgent, NoSupportedAgentError } = mockMod || await import('./transport.js?v=20260712-ui');
+const { connect, installAgent, NoSupportedAgentError } = mockMod || await import('./transport.js?v=20260714-tabs');
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -23,15 +23,18 @@ const ICONS = {
   warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 4.2 2.9 17a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13.5"/><circle cx="12" cy="16.8" r="0.4" fill="currentColor"/></svg>',
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3c-1.5 0-2.9-.3-4.1-.9L3 20l1.1-5.2a8 8 0 0 1-.6-3.3A8.4 8.4 0 0 1 12 3.2a8.4 8.4 0 0 1 9 8.3z"/></svg>',
   chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>',
-  chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>',
-  chevronLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 5 8 12 15 19"/></svg>',
-  arrowUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="6"/><polyline points="6 12 12 6 18 12"/></svg>',
-  arrowDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="18"/><polyline points="6 12 12 18 18 12"/></svg>',
-  stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5.5" x2="12" y2="18.5"/><line x1="5.5" y1="12" x2="18.5" y2="12"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+  compose: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5"/><path d="M17.6 3.9a2 2 0 0 1 2.8 2.8L12 15l-4 1 1-4z"/></svg>',
   spark: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l1.7 5.4L19 10l-5.3 1.6L12 17l-1.7-5.4L5 10l5.3-1.6z"/></svg>',
   terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5 7 10 12 5 17"/><line x1="12" y1="17" x2="19" y2="17"/></svg>',
   file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 19 8"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.6 3.9a2 2 0 0 1 2.8 2.8L7 20l-4 1 1-4z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="21 3 21 9 15 9"/><path d="M20.5 13a8.5 8.5 0 1 1-2-7.5L21 9"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 6V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>',
+  dots: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
 };
 const icon = (name, cls = 'icon') => {
   const s = el('span', cls);
@@ -43,6 +46,15 @@ const state = {
   devices: [],
   conns: new Map(), // device id -> connection (see connectDevice)
   filter: 'all', // 'all' | device id — a view scope, never a connection switch
+  mode: 'normal', // 'normal' | 'follower' | 'unpaired'
+  screen: 'home', // 'home' | 'session'
+  tabs: [], // { key, deviceId, threadId, title, ephemeral, lastTurnActive, draft }
+  active: null, // key of the selected tab (meaningful while screen === 'session')
+  ctxOpen: true,
+  ctxTab: 'details', // 'details' | 'activity' | 'changes'
+  mobilePane: 'session', // 'session' | 'context'
+  query: '',
+  newN: 0,
   threadId: null,
   threadTitle: '',
   threadDeviceId: null,
@@ -54,6 +66,13 @@ const state = {
 const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
 const inChat = () => !!state.threadId;
+const tabKeyFor = (deviceId, threadId) => `${deviceId}:${threadId}`;
+const activeTab = () => state.tabs.find((t) => t.key === state.active) || null;
+
+// --- responsive layout ---
+const mqDesk = matchMedia('(min-width: 1100px)');
+const mqTab = matchMedia('(min-width: 700px)');
+const layout = () => (mqDesk.matches ? 'desktop' : mqTab.matches ? 'tablet' : 'mobile');
 
 // --- haptics ---
 // iOS Safari has no vibration API, and it does NOT fire a haptic for
@@ -87,11 +106,11 @@ function haptic() {
 }
 
 // --- view transitions ---
-// Navigation-level swaps only (sessions <-> chat, filter changes), and only
-// a plain crossfade — shared-element morphs proved too distracting for an
-// action performed dozens of times a day. Streaming ticks and reconnect
-// repaints never go through here: transitions capture snapshots and briefly
-// intercept input, which would jank a live turn.
+// Navigation-level swaps only (home <-> session, tab select, filter changes),
+// and only a plain crossfade — shared-element morphs proved too distracting
+// for an action performed dozens of times a day. Streaming ticks and
+// reconnect repaints never go through here: transitions capture snapshots
+// and briefly intercept input, which would jank a live turn.
 const VT = !!document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (VT) document.documentElement.classList.add('vt');
 function navigate(update) {
@@ -109,7 +128,11 @@ const DEVICES_KEY = 'doggypile:devices';
 const LEGACY_CREDS_KEY = 'doggypile:creds';
 
 function loadDevices() {
-  if (MOCK) return [{ id: 'mock', name: 'mock', token: 'mock', relay: null, addrs: [] }];
+  if (MOCK) {
+    // `?mock&machines=N` fakes extra paired machines for multi-device UI work.
+    const n = Math.max(1, Number(new URLSearchParams(location.search).get('machines')) || 1);
+    return Array.from({ length: n }, (_, i) => ({ id: i ? `mock${i + 1}` : 'mock', name: i ? `mock-${i + 1}` : 'mock', token: 'mock', relay: null, addrs: [] }));
+  }
   let devices = [];
   try {
     const saved = JSON.parse(localStorage.getItem(DEVICES_KEY) || 'null');
@@ -166,6 +189,37 @@ function upsertFromFragment(devices) {
 
 function deviceLabel(d) {
   return d?.name || (d ? `${d.id.slice(0, 8)}…` : '');
+}
+
+// --- workspace tab registry ---
+// Open-thread tabs live per browser tab (sessionStorage): a reload restores
+// the workspace, but two windows don't fight over one list. Ephemeral (not
+// yet started) sessions are never persisted.
+const TABS_KEY = 'doggypile:tabs';
+
+function persistTabs() {
+  try {
+    sessionStorage.setItem(TABS_KEY, JSON.stringify({
+      v: 1,
+      active: state.active,
+      tabs: state.tabs.filter((t) => !t.ephemeral).map(({ deviceId, threadId, title }) => ({ deviceId, threadId, title })),
+    }));
+  } catch { /* storage full or unavailable: tabs stay in-memory */ }
+}
+
+function restoreTabs() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(TABS_KEY) || 'null');
+    if (saved?.v !== 1) return;
+    for (const t of saved.tabs || []) {
+      if (!t?.deviceId || !t?.threadId) continue;
+      if (!state.devices.some((d) => d.id === t.deviceId)) continue;
+      const key = tabKeyFor(t.deviceId, t.threadId);
+      if (state.tabs.some((x) => x.key === key)) continue;
+      state.tabs.push({ key, deviceId: t.deviceId, threadId: t.threadId, title: t.title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' });
+    }
+    if (saved.active && state.tabs.some((t) => t.key === saved.active)) state.active = saved.active;
+  } catch { /* corrupted: start with no tabs */ }
 }
 
 // --- connection pool ---
@@ -294,7 +348,16 @@ function markConn(conn, status, detail) {
   conn.status = status;
   if (detail !== undefined) conn.lastDetail = detail || '';
   renderChips();
-  if (!inChat() && (status === 'connected' || conn.threads === null)) renderSessions();
+  renderStrip();
+  if (state.screen === 'home' && (status === 'connected' || conn.threads === null)) renderSessions();
+  if (state.screen === 'session') {
+    const tab = activeTab();
+    if (tab?.deviceId === conn.dev.id) {
+      renderMachinePill();
+      if (tab.ephemeral) renderEphemeral(tab);
+      renderCtxBodySoon();
+    }
+  }
 }
 
 function dropConn(id) {
@@ -319,8 +382,28 @@ async function loadThreads(conn) {
   } finally {
     conn.threadsLoading = false;
   }
+  // Session names can arrive/refresh here — sync any open tabs. A real name
+  // always wins; a preview only fills in when the tab has no better title
+  // (e.g. it was restored from history without one).
+  for (const tab of state.tabs) {
+    if (tab.deviceId !== conn.dev.id || !tab.threadId) continue;
+    const t = (conn.threads || []).find((x) => x.id === tab.threadId);
+    if (!t) continue;
+    if (t.name) tab.title = t.name;
+    else if (t.preview && (!tab.title || tab.title === 'Session')) tab.title = t.preview;
+  }
+  persistTabs();
   renderChips(); // session counts live on the chips
-  if (!inChat()) renderSessions();
+  renderStrip();
+  if (state.screen === 'home') renderSessions();
+  else {
+    const tab = activeTab();
+    if (tab && tab.deviceId === conn.dev.id && tab.threadId === state.threadId) {
+      state.threadTitle = tab.title;
+      $('#chat-title').textContent = state.threadTitle || 'Session';
+      renderCtxBodySoon();
+    }
+  }
 }
 
 // Retry every non-connected machine immediately when the app comes back to
@@ -338,30 +421,12 @@ function retryAllStale() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) retryAllStale(); });
 window.addEventListener('online', retryAllStale);
 
-// --- header / composer chrome ---
-function setHeader(...nodes) {
-  $('#header-left').replaceChildren(...nodes);
-}
-function brandEl() {
-  const wrap = el('span', 'brand');
-  wrap.append(icon('paw', 'icon brand-paw'), el('span', 'brand-name', 'doggypile'));
-  return wrap;
-}
-function backBtn() {
-  const b = el('button', 'back-btn');
-  b.append(icon('chevronLeft', 'icon back-icon'), el('span', null, 'Sessions'));
-  b.setAttribute('aria-label', 'Back to sessions');
-  b.onclick = () => history.back();
-  return b;
-}
-function showComposer(show) {
-  $('#composer').hidden = !show;
-  $('#jump').hidden = true;
-  updateComposer();
-}
+// --- composer chrome ---
 function updateComposer() {
+  const tab = activeTab();
+  const ephemeralReady = !!(tab?.ephemeral && tab.deviceId && connFor(tab.deviceId)?.status === 'connected');
   $('#stop').hidden = !state.turnActive;
-  $('#send').disabled = !$('#input').value.trim() || !state.threadId;
+  $('#send').disabled = !$('#input').value.trim() || !(state.threadId || ephemeralReady);
 }
 
 // --- centered state blocks (pairing / loading / error / empty) ---
@@ -392,38 +457,47 @@ function toast(msg) {
 }
 
 async function boot() {
-  // Restore the thread from the history entry so a reload lands back in it.
-  if (history.state?.threadId) {
-    state.threadId = history.state.threadId;
-    state.threadTitle = history.state.title || '';
-    state.threadDeviceId = history.state.deviceId || null;
-  }
+  try { state.ctxOpen = localStorage.getItem('doggypile:ctxOpen') !== '0'; } catch { /* default open */ }
   state.devices = loadDevices();
   loadThreadCache();
   upsertFromFragment(state.devices);
+  restoreTabs();
+  // Restore the thread from the history entry so a reload lands back in it.
+  if (history.state?.threadId) {
+    const deviceId = history.state.deviceId || state.devices[0]?.id || null;
+    if (deviceId) {
+      const key = tabKeyFor(deviceId, history.state.threadId);
+      if (!state.tabs.some((t) => t.key === key)) {
+        state.tabs.push({ key, deviceId, threadId: history.state.threadId, title: history.state.title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' });
+      }
+      state.active = key;
+      state.screen = 'session';
+      state.threadId = history.state.threadId;
+      state.threadDeviceId = deviceId;
+      state.threadTitle = history.state.title || '';
+    }
+  }
   if (!state.devices.length) {
     showUnpaired();
     return;
   }
-  // History entries from the single-device era carry no deviceId.
-  if (state.threadId && !state.threadDeviceId) state.threadDeviceId = state.devices[0].id;
-
   await ensureLeadership();
   startPool();
 }
 
 function startPool() {
-  if (inChat()) openThread(state.threadDeviceId, state.threadId, state.threadTitle);
-  else showSessions();
+  state.mode = 'normal';
+  if (state.screen === 'session' && activeTab()) selectTab(state.active, { history: 'none' });
+  else showHome();
   connectAllDevices();
 }
 
 // --- multi-tab coordination ---
-// Exactly one tab owns the connection pool: iroh endpoints, reconnect
-// timers, and auth-token rotation must not race across tabs. Leadership is a
-// Web Lock held for the tab's lifetime; other tabs park on the lock queue
-// and take over automatically when the leader goes away, or on request via
-// BroadcastChannel.
+// Exactly one browser tab owns the connection pool: iroh endpoints,
+// reconnect timers, and auth-token rotation must not race across tabs.
+// Leadership is a Web Lock held for the tab's lifetime; other tabs park on
+// the lock queue and take over automatically when the leader goes away, or
+// on request via BroadcastChannel.
 let releaseLeadership = null;
 const tabChannel = !MOCK && 'BroadcastChannel' in window ? new BroadcastChannel('doggypile:tabs') : null;
 
@@ -447,16 +521,18 @@ async function ensureLeadership() {
 }
 
 function showFollowerBox() {
-  setHeader(brandEl());
-  showComposer(false);
-  $('#chips').hidden = true;
+  state.mode = 'follower';
+  state.screen = 'home';
+  showScreen('home');
+  $('#home-bar').hidden = true;
+  renderChips();
   const use = el('button', 'btn btn-accent', 'Use this tab');
   use.onclick = () => {
     tabChannel?.postMessage('takeover');
     use.disabled = true;
     use.textContent = 'Taking over…';
   };
-  $('#main').replaceChildren(stateBox({
+  $('#homelist').replaceChildren(stateBox({
     icon: 'paw',
     title: 'Open in another tab',
     body: 'doggypile is already connected from another tab or window. Close it and this one takes over automatically.',
@@ -475,10 +551,12 @@ tabChannel?.addEventListener('message', async (e) => {
 });
 
 function showUnpaired() {
-  setHeader(brandEl());
-  showComposer(false);
+  state.mode = 'unpaired';
+  state.screen = 'home';
+  showScreen('home');
+  $('#home-bar').hidden = true;
   renderChips();
-  $('#main').replaceChildren(stateBox({
+  $('#homelist').replaceChildren(stateBox({
     icon: 'paw',
     title: 'Pair this device',
     body: [
@@ -516,11 +594,545 @@ async function installOnConn(conn) {
   dialConn(conn);
 }
 
+// --- screens ---
+function showScreen(name) {
+  state.screen = name;
+  $('#home').hidden = name !== 'home';
+  $('#sessionview').hidden = name !== 'session';
+  renderStrip();
+  if (name === 'session') renderSessionChrome();
+}
+
+function showHome() {
+  stashDraft();
+  state.screen = 'home';
+  state.threadId = null;
+  state.threadTitle = '';
+  state.threadDeviceId = null;
+  state.projection = null;
+  state.turnActive = false;
+  showScreen('home');
+  $('#search').value = state.query;
+  renderChips();
+  renderSessions();
+}
+
+// --- workspace strip ---
+let hiddenTabs = [];
+
+function renderStrip() {
+  const home = $('#home-btn');
+  if (state.screen === 'home') home.setAttribute('aria-current', 'page');
+  else home.removeAttribute('aria-current');
+  $('#tab-new').hidden = state.mode !== 'normal';
+  const ctxT = $('#ctx-toggle');
+  const showToggle = state.screen === 'session' && layout() !== 'mobile' && !activeTab()?.ephemeral;
+  ctxT.hidden = !showToggle;
+  ctxT.setAttribute('aria-pressed', String(state.ctxOpen));
+
+  const tabsEl = $('#wtabs');
+  const newBtn = $('#tab-new');
+  tabsEl.replaceChildren(newBtn);
+  hiddenTabs = [];
+  if (!state.tabs.length || state.mode !== 'normal') return;
+  // Tabs have a fixed flex basis; measure how many fit and spill the rest
+  // into an overflow menu, always keeping the active tab visible. Reserve
+  // room for the adjacent New Session control inside this same tab row.
+  const avail = Math.max(0, tabsEl.clientWidth - newBtn.offsetWidth - 4);
+  const tabW = (layout() === 'mobile' ? 128 : 180) + 4;
+  let fit = Math.max(1, Math.floor((avail + 4) / tabW));
+  let visible = state.tabs;
+  if (fit < state.tabs.length) {
+    fit = Math.max(1, Math.floor((avail - 48 + 4) / tabW)); // reserve room for the "+N" button
+    visible = state.tabs.slice(0, fit);
+    if (state.screen === 'session') {
+      const active = state.tabs.find((t) => t.key === state.active);
+      if (active && !visible.includes(active)) visible[visible.length - 1] = active;
+    }
+    hiddenTabs = state.tabs.filter((t) => !visible.includes(t));
+  }
+  for (const tab of visible) tabsEl.insertBefore(tabEl(tab), newBtn);
+  if (hiddenTabs.length) {
+    const more = el('button', 'wtab-more');
+    more.id = 'tabmore';
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    more.setAttribute('aria-label', `${hiddenTabs.length} more open session${hiddenTabs.length > 1 ? 's' : ''}`);
+    more.append(icon('dots', 'icon tabicon'), document.createTextNode(`+${hiddenTabs.length}`));
+    more.onclick = () => openTabOverflow(more);
+    tabsEl.insertBefore(more, newBtn);
+  }
+}
+
+function tabDot(tab) {
+  const dot = el('span', 'sdot' + (tab.lastTurnActive ? ' live' : ''));
+  dot.dataset.s = connFor(tab.deviceId)?.status || 'connecting';
+  return dot;
+}
+
+function tabEl(tab) {
+  const active = state.screen === 'session' && state.active === tab.key;
+  const wrap = el('div', 'wtab');
+  wrap.setAttribute('role', 'presentation');
+  wrap.dataset.active = String(active);
+  if (tab.ephemeral) wrap.dataset.eph = 'true';
+  const main = el('button', 'wtab-main');
+  main.setAttribute('role', 'tab');
+  main.setAttribute('aria-selected', String(active));
+  main.tabIndex = active || (state.screen === 'home' && state.tabs[0] === tab) ? 0 : -1;
+  main.append(tab.ephemeral ? icon('compose', 'icon tabicon') : tabDot(tab));
+  main.append(el('span', 'wtab-title', tab.title || 'Session'));
+  main.onclick = () => {
+    if (state.screen === 'session' && state.active === tab.key) return;
+    navigate(() => selectTab(tab.key));
+  };
+  const close = el('button', 'wtab-close');
+  close.setAttribute('aria-label', `Close ${tab.title || 'session'}`);
+  close.tabIndex = -1;
+  close.innerHTML = ICONS.close;
+  close.onclick = (e) => { e.stopPropagation(); closeTab(tab.key); };
+  wrap.append(main, close);
+  return wrap;
+}
+
+function openTabOverflow(anchor) {
+  anchor.setAttribute('aria-expanded', 'true');
+  openSurface('menu', (box) => {
+    for (const tab of hiddenTabs) {
+      const item = el('button', 'menu-item');
+      item.setAttribute('role', 'menuitem');
+      item.append(tab.ephemeral ? icon('compose', 'icon tabicon') : tabDot(tab));
+      item.append(el('span', 'mi-title', tab.title || 'Session'));
+      const dev = state.devices.find((d) => d.id === tab.deviceId);
+      if (dev) item.append(el('span', 'mi-side', deviceLabel(dev)));
+      item.onclick = () => { closeSurface(false); navigate(() => selectTab(tab.key)); };
+      box.append(item);
+    }
+  }, { anchor, label: 'More open sessions' });
+}
+
+// --- tab lifecycle ---
+function stashDraft() {
+  const tab = activeTab();
+  const box = $('#input');
+  if (tab && box && state.screen === 'session') tab.draft = box.value;
+}
+
+function openTabForThread(deviceId, threadId, title, opts = {}) {
+  const key = tabKeyFor(deviceId, threadId);
+  let tab = state.tabs.find((t) => t.key === key);
+  if (!tab) {
+    tab = { key, deviceId, threadId, title: title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' };
+    state.tabs.push(tab);
+  } else if (title) {
+    tab.title = title;
+  }
+  selectTab(key, opts);
+}
+
+function selectTab(key, opts = {}) {
+  const tab = state.tabs.find((t) => t.key === key);
+  if (!tab) return;
+  stashDraft();
+  const wasSession = state.screen === 'session';
+  state.active = key;
+  state.mobilePane = 'session';
+  closeSurface(false);
+  if (opts.history !== 'none') {
+    // Home -> session pushes one entry (platform back returns Home);
+    // switching between tabs replaces it so history never stacks up.
+    const entry = tab.ephemeral
+      ? { ephemeral: true, tabKey: key }
+      : { deviceId: tab.deviceId, threadId: tab.threadId, title: tab.title || '' };
+    if (wasSession || opts.history === 'replace') history.replaceState(entry, '');
+    else history.pushState(entry, '');
+  }
+  if (tab.ephemeral) {
+    state.threadId = null;
+    state.threadDeviceId = tab.deviceId || null;
+    state.threadTitle = tab.title;
+    state.projection = null;
+    state.turnActive = false;
+    chat.nodes.clear();
+    chat.log = null;
+    showScreen('session');
+    renderEphemeral(tab);
+  } else {
+    openThread(tab.deviceId, tab.threadId, tab.title);
+  }
+  const box = $('#input');
+  box.value = tab.draft || '';
+  autoResize();
+  persistTabs();
+  renderStrip();
+}
+
+function closeTab(key) {
+  const i = state.tabs.findIndex((t) => t.key === key);
+  if (i < 0) return;
+  const wasActive = state.active === key;
+  state.tabs.splice(i, 1);
+  if (wasActive) {
+    state.active = null;
+    if (state.screen === 'session') {
+      if (state.tabs.length) {
+        selectTab(state.tabs[Math.min(i, state.tabs.length - 1)].key, { history: 'replace' });
+        persistTabs();
+        $('#wtabs [role="tab"][aria-selected="true"]')?.focus();
+        return;
+      }
+      // Last tab closed: land on Home without leaving a dead entry behind.
+      history.replaceState(null, '');
+      showHome();
+      persistTabs();
+      $('#home-btn')?.focus();
+      return;
+    }
+    state.active = state.tabs[Math.min(i, state.tabs.length - 1)]?.key || null;
+  }
+  persistTabs();
+  renderStrip();
+}
+
+function newSessionTab() {
+  if (state.mode !== 'normal') return;
+  if (!state.devices.length) { showUnpaired(); return; }
+  const existing = state.tabs.find((t) => t.ephemeral);
+  if (existing) {
+    navigate(() => selectTab(existing.key));
+    setTimeout(() => $('#input')?.focus(), 60);
+    return;
+  }
+  const connected = state.devices.filter((d) => connFor(d.id)?.status === 'connected');
+  const preselect = state.devices.length === 1 ? state.devices[0].id
+    : connected.length === 1 ? connected[0].id : null;
+  const tab = {
+    key: `new-${++state.newN}`,
+    deviceId: preselect,
+    threadId: null,
+    title: 'New session',
+    ephemeral: true,
+    lastTurnActive: false,
+    draft: '',
+  };
+  state.tabs.push(tab);
+  navigate(() => selectTab(tab.key));
+  setTimeout(() => $('#input')?.focus(), 60);
+}
+
+// The unstarted-session canvas: a quiet brand mark above the centered
+// composer card. Machine choice lives in the composer's control row.
+function renderEphemeral(tab) {
+  if (state.screen !== 'session' || activeTab() !== tab) return;
+  const hero = el('div', 'newsess view');
+  hero.append(icon('paw', 'icon newsess-paw'));
+  hero.append(el('div', 'newsess-word', 'doggypile'));
+  $('#main').replaceChildren(hero);
+  renderMachineSelect(tab);
+  updateComposer();
+}
+
+// Compact destination selector in the new-session composer. Always shown so
+// the machine the first message will land on stays explicit, even with a
+// single paired machine.
+function renderMachineSelect(tab) {
+  const btn = $('#machine-btn');
+  const dev = state.devices.find((d) => d.id === tab.deviceId);
+  const conn = dev ? connFor(dev.id) : null;
+  const status = dev ? (conn?.status || 'connecting') : 'none';
+  const label = dev ? deviceLabel(dev) : 'Choose machine';
+  const dot = el('span', 'sdot');
+  dot.dataset.s = status;
+  btn.replaceChildren(dot, el('span', 'machine-name', label), icon('chevronDown', 'icon machine-chev'));
+  btn.setAttribute('aria-label', dev
+    ? `Machine ${label}: ${status}. Change machine`
+    : 'Choose a machine for this session');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.onclick = () => openMachineSelect(tab, btn);
+}
+
+function openMachineSelect(tab, anchor) {
+  anchor.setAttribute('aria-expanded', 'true');
+  openSurface('menu', (box) => {
+    for (const dev of state.devices) {
+      const conn = connFor(dev.id);
+      const status = conn?.status || 'connecting';
+      const ok = status === 'connected';
+      const item = el('button', 'menu-item');
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(tab.deviceId === dev.id));
+      const dot = el('span', 'sdot');
+      dot.dataset.s = status;
+      item.append(dot, el('span', 'mi-title', deviceLabel(dev)));
+      const side = ok ? (conn?.agent || 'connected')
+        : status === 'connecting' ? 'connecting…'
+        : status === 'expired' ? 'pairing expired'
+        : status === 'noagent' ? 'no agent'
+        : 'offline';
+      item.append(el('span', 'mi-side', side));
+      if (!ok) {
+        item.disabled = true; // honest: not a valid destination for send
+      } else {
+        hapticize(item);
+        item.onclick = () => {
+          haptic();
+          closeSurface(false);
+          tab.deviceId = dev.id;
+          state.threadDeviceId = dev.id;
+          renderSessionChrome();
+          renderEphemeral(tab);
+          $('#input')?.focus();
+        };
+      }
+      box.append(item);
+    }
+  }, { anchor, label: 'Choose machine for this session' });
+}
+
+// --- session chrome (title, machine pill, panes, breakpoints) ---
+function renderMachinePill() {
+  const pill = $('#chat-machine');
+  const tab = activeTab();
+  const dev = state.devices.find((d) => d.id === tab?.deviceId);
+  // Ephemeral sessions carry the machine selector in the composer instead.
+  if (!dev || tab?.ephemeral) { pill.hidden = true; return; }
+  const conn = connFor(dev.id);
+  const status = conn?.status || 'connecting';
+  pill.hidden = false;
+  pill.dataset.state = status;
+  pill.textContent = deviceLabel(dev) + (status === 'connected' && conn?.agent ? ` · ${conn.agent}` : '');
+  pill.setAttribute('aria-label', `Machine ${deviceLabel(dev)}: ${status}. Machine actions`);
+  pill.onclick = () => openMachineActions(dev, pill);
+}
+
+function renderSessionChrome() {
+  const tab = activeTab();
+  if (state.screen !== 'session' || !tab) return;
+  const L = layout();
+  // Unstarted sessions get the full workspace: no context surface, no
+  // segmented control — just the centered new-session canvas.
+  const eph = !!tab.ephemeral;
+  const pane = $('#chatpane');
+  if (eph) pane.dataset.eph = 'true';
+  else delete pane.dataset.eph;
+  $('#chat-title').textContent = eph ? 'New session' : (state.threadTitle || tab.title || 'Session');
+  renderMachinePill();
+
+  const segbar = $('#segbar');
+  segbar.hidden = L !== 'mobile' || eph;
+  if (L !== 'mobile' || eph) state.mobilePane = 'session';
+  for (const b of segbar.querySelectorAll('[data-seg]')) {
+    const sel = b.dataset.seg === state.mobilePane;
+    b.setAttribute('aria-selected', String(sel));
+    b.tabIndex = sel ? 0 : -1;
+  }
+
+  const showCtx = !eph && (L === 'mobile' ? state.mobilePane === 'context' : state.ctxOpen);
+  $('#chatpane').hidden = L === 'mobile' && state.mobilePane !== 'session';
+  $('#ctxpane').hidden = !showCtx;
+  $('#ctx-close').hidden = L === 'mobile'; // the segmented control owns it there
+  $('#drawer-scrim').hidden = !(L === 'tablet' && showCtx);
+
+  const ctxT = $('#ctx-toggle');
+  ctxT.hidden = L === 'mobile' || eph;
+  ctxT.setAttribute('aria-pressed', String(state.ctxOpen));
+
+  const conn = connFor(tab.deviceId);
+  const dev = state.devices.find((d) => d.id === tab.deviceId);
+  $('#input').placeholder = eph
+    ? 'What are we working on?'
+    : tab.deviceId
+      ? `Message ${conn?.agent || 'the agent'} on ${deviceLabel(dev) || 'your computer'}`
+      : 'Pick a machine, then message the agent…';
+  if (eph) renderMachineSelect(tab);
+
+  renderCtxTabs();
+  if (showCtx) renderCtxBody(true);
+  updateComposer();
+  updateJump();
+}
+
+function persistCtxOpen() {
+  try { localStorage.setItem('doggypile:ctxOpen', state.ctxOpen ? '1' : '0'); } catch { /* fine */ }
+}
+
+// --- context pane ---
+function renderCtxTabs() {
+  for (const b of document.querySelectorAll('[data-ctxtab]')) {
+    const sel = b.dataset.ctxtab === state.ctxTab;
+    b.setAttribute('aria-selected', String(sel));
+    b.tabIndex = sel ? 0 : -1;
+  }
+}
+
+let ctxTimer = null;
+function renderCtxBodySoon() {
+  if (ctxTimer) return;
+  ctxTimer = setTimeout(() => { ctxTimer = null; renderCtxBody(); }, 250);
+}
+
+function renderCtxBody(force = false) {
+  if (state.screen !== 'session' || $('#ctxpane').hidden) return;
+  const body = $('#ctx-body');
+  // Passive refreshes must not yank focus or selection out from under the
+  // user; explicit tab switches always repaint.
+  if (!force && body.contains(document.activeElement)) return;
+  const scroll = body.scrollTop;
+  body.replaceChildren(...ctxContent());
+  body.setAttribute('aria-labelledby', `ctxtab-${state.ctxTab}`);
+  body.scrollTop = scroll;
+}
+
+function ctxContent() {
+  const tab = activeTab();
+  if (!tab) return [quietEl('No session selected.')];
+  if (state.ctxTab === 'details') return detailsContent(tab);
+  if (state.ctxTab === 'activity') return activityContent(tab);
+  return changesContent(tab);
+}
+
+const secEl = (t) => el('span', 'section-title', t);
+const quietEl = (t) => el('div', 'panel-quiet', t);
+function kvEl(k, v) {
+  const kv = el('div', 'kv');
+  kv.append(el('span', 'k', k));
+  const val = el('span', 'v');
+  if (v instanceof Node) val.append(v);
+  else val.textContent = v;
+  kv.append(val);
+  return kv;
+}
+
+function detailsContent(tab) {
+  const out = [];
+  const dev = state.devices.find((d) => d.id === tab.deviceId);
+  if (!dev) {
+    out.push(quietEl('Pick a machine in the chat to start this session.'));
+    return out;
+  }
+  const conn = connFor(dev.id);
+  const meta = conn?.threads?.find((t) => t.id === tab.threadId);
+  out.push(secEl('Session'));
+  const mval = el('span');
+  const dot = el('span', 'sdot');
+  dot.dataset.s = conn?.status || 'connecting';
+  mval.append(dot, document.createTextNode(deviceLabel(dev)));
+  out.push(kvEl('machine', mval));
+  out.push(kvEl('agent', conn?.agent || '—'));
+  out.push(kvEl('directory', meta?.cwd || '—'));
+  out.push(kvEl('updated', rel(meta?.updatedAt || meta?.recencyAt) || '—'));
+  out.push(secEl('Connection'));
+  out.push(kvEl('status', state.turnActive ? 'turn active' : (conn?.status || 'connecting')));
+  const path = conn?.metrics?.path?.selected;
+  const rtt = conn?.metrics?.path?.rtt_ms;
+  out.push(kvEl('path', path && path !== 'unknown' ? `${path}${rtt != null ? ` · ${rtt}ms` : ''}` : '—'));
+  out.push(kvEl('relay', dev.relay || '—'));
+  out.push(kvEl('node id', dev.id));
+  out.push(kvEl('last connected', dev.lastConnectedAt ? rel(dev.lastConnectedAt) : '—'));
+  const err = (conn?.status !== 'connected' && conn?.lastDetail) || dev.lastError;
+  if (err) out.push(kvEl('last error', err));
+  const actions = el('button', 'btn btn-small', 'Machine actions…');
+  actions.setAttribute('aria-haspopup', 'dialog');
+  actions.onclick = () => openMachineActions(dev, actions);
+  out.push(actions);
+  return out;
+}
+
+function prowEl(m) {
+  const row = el('div', 'prow');
+  const dot = el('span', 'dot');
+  dot.dataset.status = m.status || 'running';
+  const main = el('span', 'prow-main');
+  main.append(el('span', 'mono', `$ ${m.command || ''}`));
+  row.append(dot, main);
+  return row;
+}
+
+// Activity is derived from the same projection the chat renders — commands,
+// file events, and the latest reply. No extra daemon API, so a thread that
+// hasn't loaded shows an honest empty state.
+function activityContent(tab) {
+  const out = [];
+  if (tab.ephemeral) {
+    out.push(quietEl('Start the session to see its activity here.'));
+    return out;
+  }
+  const msgs = state.projection ? state.projection.toRenderList() : null;
+  if (state.turnActive) {
+    const w = el('div', 'working');
+    w.append(el('span', 'working-label', 'Working'));
+    out.push(w);
+    const running = msgs?.slice().reverse().find((m) => m.kind === 'command' && (m.status || 'running') === 'running');
+    if (running) out.push(prowEl(running));
+  } else {
+    out.push(quietEl('Nothing running right now.'));
+  }
+  out.push(secEl('Commands'));
+  const cmds = (msgs || []).filter((m) => m.kind === 'command');
+  if (!msgs || !msgs.length) out.push(quietEl('Nothing in this conversation yet.'));
+  else if (!cmds.length) out.push(quietEl('No commands run in this session.'));
+  else {
+    const recent = cmds.slice(-10);
+    if (cmds.length > recent.length) out.push(quietEl(`Showing the last ${recent.length} of ${cmds.length} commands.`));
+    for (const m of recent) out.push(prowEl(m));
+  }
+  out.push(secEl('Latest'));
+  const lastReply = (msgs || []).slice().reverse().find((m) => m.role === 'assistant' && m.kind === 'text' && m.text);
+  out.push(lastReply
+    ? quietEl(truncate(lastReply.text.trim().replace(/\s+/g, ' '), 220))
+    : quietEl('No assistant reply yet.'));
+  return out;
+}
+
+// Changes only surfaces what the projection really carries: agent-reported
+// file-change events (and their paths, when the agent includes them). There
+// is no Git API in the daemon, so no diffs and no invented status.
+function changesContent(tab) {
+  const out = [];
+  if (tab.ephemeral) {
+    out.push(quietEl('Start the session to see file changes here.'));
+    return out;
+  }
+  out.push(el('div', 'note', 'File paths reported by the agent in this session. doggypile doesn’t expose Git status or diffs yet, so there’s no live diff here.'));
+  const msgs = state.projection ? state.projection.toRenderList() : null;
+  if (!msgs) {
+    out.push(quietEl('Conversation not loaded yet.'));
+    return out;
+  }
+  const events = msgs.filter((m) => m.kind === 'fileChange');
+  if (!events.length) {
+    out.push(quietEl('No file changes reported in this session.'));
+    return out;
+  }
+  const files = [];
+  for (const evt of events) {
+    for (const p of evt.files || []) if (!files.includes(p)) files.push(p);
+  }
+  if (!files.length) {
+    out.push(el('div', 'changes-sum', `${events.length} file-change event${events.length > 1 ? 's' : ''} · paths not reported`));
+    return out;
+  }
+  out.push(el('div', 'changes-sum', `${files.length} file${files.length > 1 ? 's' : ''} touched`));
+  for (const p of files) {
+    const row = el('div', 'frow');
+    row.append(icon('file', 'icon chip-icon'), el('span', 'fname', p));
+    out.push(row);
+  }
+  return out;
+}
+
+// Path/RTT in Details drift while the pane sits open; refresh gently.
+setInterval(() => {
+  if (state.screen === 'session' && !$('#ctxpane').hidden && state.ctxTab === 'details' && !document.hidden) {
+    renderCtxBodySoon();
+  }
+}, 3000);
+
 // --- machine chips ---
 function renderChips() {
   const bar = $('#chips');
   if (!bar) return;
-  if (!state.devices.length || inChat()) { bar.hidden = true; return; }
+  if (!state.devices.length || state.mode !== 'normal') { bar.hidden = true; return; }
   bar.hidden = false;
   bar.replaceChildren();
 
@@ -544,7 +1156,7 @@ function renderChips() {
     const n = conn?.threads?.length;
     if (n) chip.append(el('span', 'cnt', String(n)));
     chip.onclick = () => chipTap(dev);
-    attachLongPress(chip, () => machineMenu(dev));
+    attachLongPress(chip, () => openMachineActions(dev, chip));
     hapticize(chip);
     bar.append(chip);
   }
@@ -552,7 +1164,7 @@ function renderChips() {
   const add = el('button', 'chip-btn chip-add');
   add.setAttribute('aria-label', 'Pair another machine');
   add.append(icon('plus'));
-  add.onclick = addMachineSheet;
+  add.onclick = pairDialog;
   bar.append(add);
 }
 
@@ -596,22 +1208,69 @@ function attachLongPress(node, fn) {
   node.addEventListener('click', (e) => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
 }
 
-// --- sheets ---
-let sheetEls = null;
-function openSheet(build) {
-  closeSheet();
-  const scrim = el('div', 'scrim');
-  scrim.onclick = closeSheet;
-  const sheet = el('div', 'sheet');
-  sheet.setAttribute('role', 'dialog');
-  sheet.append(el('div', 'sheet-grab'));
-  build(sheet);
-  document.body.append(scrim, sheet);
-  sheetEls = [scrim, sheet];
+// --- overlays: anchored popover (desktop/tablet), sheet (mobile), dialog ---
+// kind: 'menu' (anchored list) | 'dialog' (form) | 'alert' (confirm). On
+// mobile every kind becomes a bottom sheet; on desktop/tablet menus anchor
+// to their trigger and forms/confirms center as dialogs.
+let surface = null; // { restore, modal }
+
+function closeSurface(restore = true) {
+  if (!surface) return;
+  const prev = surface.restore;
+  surface = null;
+  $('#overlay-root').replaceChildren();
+  $('#tabmore')?.setAttribute('aria-expanded', 'false');
+  $('#machine-btn')?.setAttribute('aria-expanded', 'false');
+  if (restore && prev && document.contains(prev)) prev.focus();
 }
-function closeSheet() {
-  sheetEls?.forEach((n) => n.remove());
-  sheetEls = null;
+
+function openSurface(kind, build, { anchor = null, label = '' } = {}) {
+  // Chained surfaces (popover -> dialog) inherit the original trigger, so
+  // dismissing the second one still lands focus back where the user started.
+  const restore = surface?.restore && document.contains(surface.restore) ? surface.restore : document.activeElement;
+  closeSurface(false);
+  const root = $('#overlay-root');
+  const mobile = layout() === 'mobile';
+  let box;
+  if (mobile) {
+    const scrim = el('div', 'scrim');
+    scrim.onclick = () => closeSurface(true);
+    box = el('div', 'sheet');
+    box.setAttribute('role', kind === 'alert' ? 'alertdialog' : 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', label);
+    box.append(el('div', 'sheet-grab'));
+    root.append(scrim, box);
+    surface = { restore, modal: true };
+  } else if (kind === 'menu' && anchor) {
+    const dismiss = el('div', 'popover-dismiss');
+    dismiss.onclick = () => closeSurface(true);
+    box = el('div', 'anchored-popover');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', label);
+    root.append(dismiss, box);
+    surface = { restore, modal: false };
+  } else {
+    const scrim = el('div', 'scrim');
+    scrim.onclick = () => closeSurface(true);
+    box = el('div', 'modal-dialog' + (kind === 'alert' ? ' modal-action' : ''));
+    box.setAttribute('role', kind === 'alert' ? 'alertdialog' : 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', label);
+    root.append(scrim, box);
+    surface = { restore, modal: true };
+  }
+  build(box);
+  if (!mobile && kind === 'menu' && anchor) {
+    const r = anchor.getBoundingClientRect();
+    const x = Math.max(12, Math.min(r.left, innerWidth - box.offsetWidth - 12));
+    let y = r.bottom + 6;
+    if (y + box.offsetHeight > innerHeight - 12) y = Math.max(12, r.top - box.offsetHeight - 6);
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
+  }
+  const first = box.querySelector('[autofocus]') || box.querySelector('input, textarea') || box.querySelector('button');
+  first?.focus();
 }
 
 function sheetTitleRow(dev, conn) {
@@ -633,23 +1292,30 @@ function connSubtitle(conn) {
   return conn.lastDetail || conn.status;
 }
 
-function machineMenu(dev) {
+function openMachineActions(dev, anchor) {
   const conn = connFor(dev.id);
-  openSheet((sheet) => {
-    sheet.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
-    const actions = [
-      ['Reconnect', () => { closeSheet(); chipTapReconnect(dev); }, conn?.status === 'connected'],
-      ['Rename', () => renameSheet(dev)],
-      ['Details', () => detailsSheet(dev)],
-      ['Forget machine', () => forgetSheet(dev), false, true],
-    ];
-    for (const [label, fn, disabled, danger] of actions) {
-      const row = el('button', 'action-row' + (danger ? ' danger' : ''), label);
+  openSurface('menu', (box) => {
+    const head = el('div', 'popover-head');
+    head.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
+    box.append(head);
+    const add = (ic, label, fn, { danger = false, disabled = false, sub = null } = {}) => {
+      const row = el('button', 'action-row' + (danger ? ' danger' : ''));
+      row.append(icon(ic));
+      const main = el('div', 'action-main');
+      main.append(document.createTextNode(label));
+      if (sub) main.append(el('span', 'action-sub', sub));
+      row.append(main);
       if (disabled) row.setAttribute('disabled', '');
       else row.onclick = fn;
-      sheet.append(row);
-    }
-  });
+      box.append(row);
+    };
+    add('info', 'Connection details', () => machineDetails(dev));
+    add('pencil', 'Rename machine…', () => renameDialog(dev));
+    add('copy', 'Copy node ID', () => { closeSurface(true); copyNodeId(dev); }, { sub: `${dev.id.slice(0, 16)}…` });
+    add('refresh', 'Reconnect', () => { closeSurface(true); chipTapReconnect(dev); }, { disabled: conn?.status === 'connected' });
+    if (conn?.status === 'noagent') add('refresh', 'Install opencode…', () => { closeSurface(true); installOnConn(conn); });
+    add('trash', 'Forget machine…', () => forgetDialog(dev), { danger: true });
+  }, { anchor, label: `Machine ${deviceLabel(dev)}` });
 }
 
 function chipTapReconnect(dev) {
@@ -661,36 +1327,31 @@ function chipTapReconnect(dev) {
   toast(`Reconnecting to ${deviceLabel(dev)}…`);
 }
 
-function renameSheet(dev) {
-  openSheet((sheet) => {
-    sheet.append(el('div', 'sheet-title', `Rename ${deviceLabel(dev)}`));
-    sheet.append(el('div', 'sheet-sub', 'Local nickname only — the computer keeps its hostname.'));
-    const input = el('input', 'field');
-    input.value = dev.name || '';
-    input.placeholder = dev.id.slice(0, 8);
-    input.maxLength = 24;
-    const btns = el('div', 'sheet-btns');
-    const cancel = el('button', 'btn', 'Cancel');
-    cancel.onclick = closeSheet;
-    const save = el('button', 'btn btn-accent', 'Save');
-    save.onclick = () => {
-      const v = input.value.trim();
-      updateDevice(dev.id, { name: v || null });
-      closeSheet();
-      renderChips();
-      renderSessions();
-    };
-    input.onkeydown = (e) => { if (e.key === 'Enter') save.onclick(); };
-    btns.append(cancel, save);
-    sheet.append(input, btns);
-    setTimeout(() => input.select(), 60);
-  });
+function copyNodeId(dev) {
+  const write = navigator.clipboard?.writeText(dev.id);
+  if (!write) { toast(`Node ID: ${dev.id}`); return; }
+  write.then(() => toast('Node ID copied.'), () => toast(`Node ID: ${dev.id}`));
 }
 
-function detailsSheet(dev) {
+// Machine/thread details belong in the context pane whenever we're already
+// looking at a session on that machine; from Home they get a plain read-only
+// surface instead.
+function machineDetails(dev) {
+  const tab = activeTab();
+  if (state.screen === 'session' && tab && !tab.ephemeral && tab.deviceId === dev.id) {
+    closeSurface(false);
+    state.ctxOpen = true;
+    persistCtxOpen();
+    state.ctxTab = 'details';
+    if (layout() === 'mobile') state.mobilePane = 'context';
+    renderSessionChrome();
+    renderStrip();
+    $('#ctxtab-details')?.focus();
+    return;
+  }
   const conn = connFor(dev.id);
-  openSheet((sheet) => {
-    sheet.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
+  openSurface('dialog', (box) => {
+    box.append(sheetTitleRow(dev, conn), el('div', 'sheet-sub', connSubtitle(conn)));
     const rows = [
       ['status', conn?.status || 'connecting'],
       ['agent', conn?.agent || '—'],
@@ -700,54 +1361,104 @@ function detailsSheet(dev) {
       ['last connected', dev.lastConnectedAt ? rel(dev.lastConnectedAt) : '—'],
       ['last error', dev.lastError || '—'],
     ];
-    for (const [k, v] of rows) {
-      const kv = el('div', 'kv');
-      kv.append(el('span', 'k', k), el('span', 'v', v));
-      sheet.append(kv);
-    }
-  });
+    for (const [k, v] of rows) box.append(kvEl(k, v));
+    const btns = el('div', 'sheet-btns');
+    const done = el('button', 'btn', 'Close');
+    done.onclick = () => closeSurface(true);
+    btns.append(done);
+    box.append(btns);
+  }, { label: `Details for ${deviceLabel(dev)}` });
 }
 
-function forgetSheet(dev) {
-  openSheet((sheet) => {
-    sheet.append(el('div', 'sheet-title', `Forget ${deviceLabel(dev)}?`));
-    sheet.append(el('div', 'sheet-sub', 'Removes the pairing and its sessions from this phone. Nothing is deleted on the computer — re-pair any time with a new QR.'));
+function renameDialog(dev) {
+  openSurface('dialog', (box) => {
+    box.append(el('div', 'sheet-title', `Rename ${deviceLabel(dev)}`));
+    box.append(el('div', 'sheet-sub', 'Local nickname only — the computer keeps its hostname.'));
+    const input = el('input', 'field');
+    input.value = dev.name || '';
+    input.placeholder = dev.id.slice(0, 8);
+    input.maxLength = 24;
+    input.setAttribute('aria-label', 'Machine name');
     const btns = el('div', 'sheet-btns');
     const cancel = el('button', 'btn', 'Cancel');
-    cancel.onclick = closeSheet;
+    cancel.onclick = () => closeSurface(true);
+    const save = el('button', 'btn btn-accent', 'Save');
+    save.onclick = () => {
+      const v = input.value.trim();
+      updateDevice(dev.id, { name: v || null });
+      closeSurface(true);
+      renderChips();
+      renderSessions();
+      renderStrip();
+      if (state.screen === 'session') renderSessionChrome();
+    };
+    input.onkeydown = (e) => { if (e.key === 'Enter') save.onclick(); };
+    btns.append(cancel, save);
+    box.append(input, btns);
+    setTimeout(() => input.select(), 60);
+  }, { label: `Rename ${deviceLabel(dev)}` });
+}
+
+function forgetDialog(dev) {
+  openSurface('alert', (box) => {
+    box.append(el('div', 'sheet-title', `Forget ${deviceLabel(dev)}?`));
+    box.append(el('div', 'sheet-sub', 'Removes the pairing and its sessions from this phone. Nothing is deleted on the computer — re-pair any time with a new QR.'));
+    const btns = el('div', 'sheet-btns');
+    const cancel = el('button', 'btn', 'Cancel');
+    cancel.setAttribute('autofocus', '');
+    cancel.onclick = () => closeSurface(true);
     const doit = el('button', 'btn btn-danger', 'Forget machine');
     hapticize(doit);
     doit.onclick = () => {
       haptic();
-      closeSheet();
-      dropConn(dev.id);
-      purgeThreadCache(dev.id);
-      state.devices = state.devices.filter((d) => d.id !== dev.id);
-      persistDevices(state.devices);
-      if (state.filter === dev.id) state.filter = 'all';
-      if (!state.devices.length) { showUnpaired(); return; }
-      renderChips();
-      renderSessions();
-      toast(`Forgot ${deviceLabel(dev)}. Scan its QR again to re-pair.`);
+      closeSurface(false);
+      forgetMachine(dev);
     };
     btns.append(cancel, doit);
-    sheet.append(btns);
-  });
+    box.append(btns);
+  }, { label: `Forget ${deviceLabel(dev)}` });
 }
 
-function addMachineSheet() {
-  openSheet((sheet) => {
-    sheet.append(el('div', 'sheet-title', 'Pair another machine'));
+function forgetMachine(dev) {
+  dropConn(dev.id);
+  purgeThreadCache(dev.id);
+  state.devices = state.devices.filter((d) => d.id !== dev.id);
+  persistDevices(state.devices);
+  if (state.filter === dev.id) state.filter = 'all';
+  // Its open tabs go with it.
+  const activeGone = activeTab()?.deviceId === dev.id;
+  state.tabs = state.tabs.filter((t) => t.deviceId !== dev.id);
+  persistTabs();
+  if (!state.devices.length) {
+    history.replaceState(null, '');
+    showUnpaired();
+    return;
+  }
+  if (activeGone && state.screen === 'session') {
+    history.replaceState(null, '');
+    showHome();
+  } else {
+    renderChips();
+    renderSessions();
+    renderStrip();
+  }
+  toast(`Forgot ${deviceLabel(dev)}. Scan its QR again to re-pair.`);
+}
+
+function pairDialog() {
+  openSurface('dialog', (box) => {
+    box.append(el('div', 'sheet-title', 'Pair another machine'));
     const sub = el('div', 'sheet-sub');
     sub.append('Run ', el('code', null, 'doggypile pair'), ' on the other computer, then scan its QR code with this phone. It joins the list — nothing here is replaced.');
-    sheet.append(sub);
+    box.append(sub);
     const input = el('input', 'field');
     input.placeholder = 'or paste a pair link…';
     input.autocapitalize = 'off';
     input.spellcheck = false;
+    input.setAttribute('aria-label', 'Pair link');
     const btns = el('div', 'sheet-btns');
     const cancel = el('button', 'btn', 'Close');
-    cancel.onclick = closeSheet;
+    cancel.onclick = () => closeSurface(true);
     const add = el('button', 'btn btn-accent', 'Add from link');
     add.onclick = () => {
       const text = input.value.trim();
@@ -766,7 +1477,7 @@ function addMachineSheet() {
         state.devices.push(dev);
       }
       persistDevices(state.devices);
-      closeSheet();
+      closeSurface(true);
       connectDevice(dev, { resetBackoff: true });
       renderChips();
       renderSessions();
@@ -774,23 +1485,11 @@ function addMachineSheet() {
     };
     input.onkeydown = (e) => { if (e.key === 'Enter') add.onclick(); };
     btns.append(cancel, add);
-    sheet.append(input, btns);
-  });
+    box.append(input, btns);
+  }, { label: 'Pair another machine' });
 }
 
-// --- sessions list ---
-function sectionHead() {
-  const row = el('div', 'section-head');
-  const scope = state.filter === 'all' ? 'Sessions' : `Sessions · ${deviceLabel(state.devices.find((d) => d.id === state.filter))}`;
-  row.append(el('span', 'section-title', scope));
-  const add = el('button', 'btn btn-accent btn-small');
-  add.append(icon('plus', 'icon btn-icon'), el('span', null, 'New'));
-  add.setAttribute('aria-label', 'New session');
-  add.onclick = newThreadFlow;
-  row.append(add);
-  return row;
-}
-
+// --- home sessions list ---
 function skeletonList(n = 5) {
   const wrap = el('div', 'view');
   for (let i = 0; i < n; i++) {
@@ -801,17 +1500,6 @@ function skeletonList(n = 5) {
   return wrap;
 }
 
-// Navigation-level entry: leave any chat, then paint whatever the pool has.
-function showSessions() {
-  state.threadId = null;
-  state.threadTitle = '';
-  state.threadDeviceId = null;
-  setHeader(brandEl());
-  showComposer(false);
-  renderChips();
-  renderSessions();
-}
-
 const tsVal = (t) => {
   const raw = t.updatedAt || t.recencyAt;
   if (!raw) return 0;
@@ -820,20 +1508,31 @@ const tsVal = (t) => {
 };
 
 // Data-level (re)paint of the merged list. Called whenever any machine's
-// connection state or thread list changes while the list is on screen.
+// connection state or thread list changes while Home is on screen.
 function renderSessions() {
-  if (inChat()) return;
+  if (state.screen !== 'home' || state.mode !== 'normal') return;
+  $('#home-bar').hidden = false;
+  const listEl = $('#homelist');
   const conns = [...state.conns.values()].filter((c) => state.filter === 'all' || c.dev.id === state.filter);
+  const q = state.query.trim().toLowerCase();
+  const matches = (t, conn) => !q
+    || (t.name || t.preview || '').toLowerCase().includes(q)
+    || (t.cwd || '').toLowerCase().includes(q)
+    || deviceLabel(conn.dev).toLowerCase().includes(q);
   const merged = [];
   for (const conn of conns) {
-    for (const t of conn.threads || []) merged.push({ t, conn });
+    for (const t of conn.threads || []) if (matches(t, conn)) merged.push({ t, conn });
   }
   merged.sort((a, b) => tsVal(b.t) - tsVal(a.t));
 
   if (!merged.length) {
     const waiting = conns.some((c) => c.status === 'connecting' || (c.status === 'connected' && c.threads === null));
     if (waiting) {
-      $('#main').replaceChildren(sectionHead(), skeletonList());
+      listEl.replaceChildren(skeletonList());
+      return;
+    }
+    if (q) {
+      listEl.replaceChildren(el('div', 'home-empty', `No sessions match “${state.query.trim()}”.`));
       return;
     }
     const allDead = conns.length && conns.every((c) => c.status === 'offline' || c.status === 'expired' || c.status === 'noagent');
@@ -841,7 +1540,7 @@ function renderSessions() {
       const retry = el('button', 'btn', 'Retry now');
       retry.onclick = retryAllStale;
       const which = state.filter === 'all' && state.devices.length > 1 ? 'any of your machines' : 'this machine';
-      $('#main').replaceChildren(sectionHead(), stateBox({
+      listEl.replaceChildren(stateBox({
         icon: 'warn',
         title: `Can’t reach ${which}`,
         body: conns.map((c) => `${deviceLabel(c.dev)}: ${c.lastDetail || c.status}`).join('\n'),
@@ -850,8 +1549,8 @@ function renderSessions() {
       return;
     }
     const start = el('button', 'btn btn-accent', 'Start a session');
-    start.onclick = newThreadFlow;
-    $('#main').replaceChildren(sectionHead(), stateBox({
+    start.onclick = newSessionTab;
+    listEl.replaceChildren(stateBox({
       icon: 'chat',
       title: 'No sessions yet',
       body: 'Start a session to chat with the agent on your computer.',
@@ -860,78 +1559,43 @@ function renderSessions() {
     return;
   }
 
-  const list = el('div', 'sessions view');
-  const showMachine = state.devices.length > 1;
+  const list = el('div', 'view');
+  const dayAgo = Date.now() - 86_400_000;
+  let lastGroup = null;
   for (const { t, conn } of merged) {
-    const title = t.name || t.preview || 'Untitled session';
-    const row = el('button', 'session');
-    const main = el('div', 'session-main');
-    main.append(el('div', 'session-title', title));
-    const meta = el('div', 'session-meta');
-    if (showMachine) {
-      const chip = el('span', 'mchip');
-      const dot = el('span', 'sdot');
-      dot.dataset.s = conn.status;
-      chip.append(dot, document.createTextNode(deviceLabel(conn.dev)));
-      meta.append(chip);
+    const group = tsVal(t) >= dayAgo ? 'Today' : 'Earlier';
+    if (group !== lastGroup) {
+      list.append(el('span', 'section-title', group));
+      lastGroup = group;
     }
-    const dir = short(t.cwd);
-    if (dir) meta.append(el('span', 'session-dir', dir));
-    const when = rel(t.updatedAt || t.recencyAt);
-    if (when) meta.append(el('span', 'session-time', when));
-    main.append(meta);
-    row.append(main, icon('chevronRight', 'icon session-chevron'));
-    row.onclick = () => navigate(() => navigateToThread(conn.dev.id, t.id, title));
-    list.append(row);
+    list.append(sessionRow(t, conn));
   }
-  $('#main').replaceChildren(sectionHead(), list);
+  listEl.replaceChildren(list);
 }
 
-// Every session lives on one machine, so creating one needs a target:
-// the active filter if it's a machine, the only machine, or a picker.
-function newThreadFlow() {
-  if (state.filter !== 'all') return newThread(state.filter);
-  const connected = state.devices.filter((d) => connFor(d.id)?.status === 'connected');
-  if (state.devices.length === 1) return newThread(state.devices[0].id);
-  if (connected.length === 1) return newThread(connected[0].id);
-  openSheet((sheet) => {
-    sheet.append(el('div', 'sheet-title', 'New session on…'));
-    for (const dev of state.devices) {
-      const conn = connFor(dev.id);
-      const ok = conn?.status === 'connected';
-      const row = el('button', 'action-row');
-      if (!ok) row.setAttribute('disabled', '');
-      const dot = el('span', 'sdot');
-      dot.dataset.s = conn?.status || 'connecting';
-      const main = el('div', 'action-main');
-      main.append(document.createTextNode(deviceLabel(dev)), el('span', 'action-sub', connSubtitle(conn)));
-      row.append(dot, main);
-      if (ok) row.onclick = () => { closeSheet(); newThread(dev.id); };
-      sheet.append(row);
-    }
-  });
-}
-
-async function newThread(deviceId) {
-  const conn = connFor(deviceId);
-  if (conn?.status !== 'connected') {
-    toast(`${deviceLabel(conn?.dev || { id: deviceId })} isn’t connected.`);
-    return;
+function sessionRow(t, conn) {
+  const title = t.name || t.preview || 'Untitled session';
+  const row = el('button', 'session');
+  const tab = state.tabs.find((x) => x.deviceId === conn.dev.id && x.threadId === t.id);
+  if (tab?.lastTurnActive) {
+    row.dataset.live = 'true';
+    const d = el('span', 'session-dot');
+    d.setAttribute('role', 'img');
+    d.setAttribute('aria-label', 'Turn running');
+    row.append(d);
   }
-  if (state.creatingThread) return;
-  state.creatingThread = true;
-  try {
-    const res = await conn.rpc.request('thread/start', {
-      approvalPolicy: 'never',
-      sandbox: 'danger-full-access',
-    });
-    const id = res?.thread?.id;
-    if (id) await navigateToThread(deviceId, id, 'New session');
-  } catch (e) {
-    toast(`Couldn’t start a session: ${e?.message || e}`);
-  } finally {
-    state.creatingThread = false;
-  }
+  const main = el('div', 'session-main');
+  main.append(el('div', 'session-title', title));
+  const subBits = [];
+  if (state.devices.length > 1) subBits.push(deviceLabel(conn.dev));
+  const dir = short(t.cwd);
+  if (dir) subBits.push(dir);
+  main.append(el('div', 'session-sub', subBits.join(' · ') || '—'));
+  row.append(main);
+  const when = rel(t.updatedAt || t.recencyAt);
+  if (when) row.append(el('span', 'session-side', when));
+  row.onclick = () => navigate(() => openTabForThread(conn.dev.id, t.id, title));
+  return row;
 }
 
 // --- chat ---
@@ -990,27 +1654,18 @@ function purgeThreadCache(deviceId) {
   persistThreadCache();
 }
 
-// User-initiated navigation into a thread: records a history entry so the
-// platform back gesture/button returns to the session list. Reconnect-resume
-// and popstate call openThread directly to avoid stacking duplicate entries.
-function navigateToThread(deviceId, id, title) {
-  history.pushState({ deviceId, threadId: id, title: title || '' }, '');
-  return openThread(deviceId, id, title);
-}
-
 async function openThread(deviceId, id, title) {
   state.threadDeviceId = deviceId;
   state.threadId = id;
   if (title) state.threadTitle = title;
+  const tab = activeTab();
+  state.turnActive = tab && tab.key === tabKeyFor(deviceId, id) ? !!tab.lastTurnActive : false;
   state.projection = createProjection();
   chat.nodes.clear();
   chat.log = null;
   const conn = connFor(deviceId);
   const dev = conn?.dev || state.devices.find((d) => d.id === deviceId);
-  setHeader(backBtn(), el('div', 'topbar-title', state.threadTitle || 'Session'));
-  renderChips(); // hides the row while in chat
-  showComposer(true);
-  $('#input').placeholder = `Message ${conn?.agent || 'the agent'} on ${deviceLabel(dev) || 'your computer'}`;
+  showScreen('session');
   const cacheKey = `${deviceId}:${id}`;
   const cached = threadCache.get(cacheKey)?.thread;
   if (cached) {
@@ -1242,6 +1897,7 @@ function renderChat() {
     requestAnimationFrame(() => { main.scrollTop = main.scrollHeight; });
   }
   updateJump();
+  if (state.screen === 'session' && !$('#ctxpane').hidden) renderCtxBodySoon();
 }
 
 let renderPending = false;
@@ -1257,14 +1913,27 @@ function scheduleRenderChat() {
 // --- scroll-to-bottom button ---
 function updateJump() {
   const main = $('#main');
-  const inChat = !!chat.log?.isConnected;
+  const showing = !!chat.log?.isConnected && state.screen === 'session';
   const away = main.scrollHeight - main.scrollTop - main.clientHeight > 240;
-  $('#jump').hidden = !(inChat && away);
+  $('#jump').hidden = !(showing && away);
 }
 
 function onNotify(conn, msg) {
+  const tid = msg.params?.threadId;
+  // Turn lifecycle for any open tab keeps its live dot honest, even when
+  // that tab isn't the one on screen.
+  if (tid && ['turn/started', 'turn/completed', 'turn/failed', 'thread/status/changed'].includes(msg.method)) {
+    const tab = state.tabs.find((t) => t.deviceId === conn.dev.id && t.threadId === tid);
+    if (tab) {
+      const st = msg.params?.status?.type;
+      if (msg.method === 'turn/started' || st === 'active' || st === 'busy') tab.lastTurnActive = true;
+      if (msg.method === 'turn/completed' || msg.method === 'turn/failed' || st === 'idle') tab.lastTurnActive = false;
+      renderStrip();
+      if (state.screen === 'home') renderSessions();
+    }
+  }
   if (conn.dev.id !== state.threadDeviceId) return; // event from a machine we're not looking at
-  if (msg.params?.threadId && msg.params.threadId !== state.threadId) return;
+  if (tid && tid !== state.threadId) return;
   if (msg.method === 'turn/started') { state.turnActive = true; scheduleRenderChat(); return; }
   if (msg.method === 'turn/completed' || msg.method === 'turn/failed') { state.turnActive = false; scheduleRenderChat(); return; }
   if (msg.method === 'thread/status/changed') {
@@ -1278,20 +1947,72 @@ function onNotify(conn, msg) {
   if (state.projection.applyNotification(msg)) scheduleRenderChat();
 }
 
+// First send in an ephemeral tab creates the real thread on the chosen
+// machine, then the message goes out on it like any other turn.
+async function materializeEphemeral(tab, firstText) {
+  const conn = connFor(tab.deviceId);
+  if (conn?.status !== 'connected' || !conn.rpc) {
+    toast(`${deviceLabel(conn?.dev) || 'That machine'} isn’t connected — hang on.`);
+    return false;
+  }
+  if (state.creatingThread) return false;
+  state.creatingThread = true;
+  let id;
+  try {
+    const res = await conn.rpc.request('thread/start', {
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+    });
+    id = res?.thread?.id;
+    if (!id) throw new Error('the daemon returned no thread id');
+  } catch (e) {
+    toast(`Couldn’t start a session: ${e?.message || e}`);
+    return false;
+  } finally {
+    state.creatingThread = false;
+  }
+  tab.threadId = id;
+  tab.ephemeral = false;
+  tab.title = truncate(firstText, 44) || 'New session';
+  tab.key = tabKeyFor(tab.deviceId, id);
+  state.active = tab.key;
+  state.threadId = id;
+  state.threadDeviceId = tab.deviceId;
+  state.threadTitle = tab.title;
+  state.projection = createProjection();
+  chat.nodes.clear();
+  chat.log = null;
+  history.replaceState({ deviceId: tab.deviceId, threadId: id, title: tab.title }, '');
+  persistTabs();
+  conn.rpc.request('thread/resume', { threadId: id }).catch(() => {});
+  loadThreads(conn); // the new session should appear on Home promptly
+  renderStrip();
+  renderSessionChrome();
+  return true;
+}
+
 async function send() {
   const box = $('#input');
   const text = box.value.trim();
+  if (!text) return;
+  const tab = activeTab();
+  if (tab?.ephemeral) {
+    if (!tab.deviceId) { toast('Pick a machine for this session first.'); return; }
+    if (!(await materializeEphemeral(tab, text))) return;
+  }
   const conn = activeConn();
-  if (!text || !state.threadId) return;
+  if (!state.threadId) return;
   if (!conn?.rpc || conn.status !== 'connected') {
     toast(`${deviceLabel(conn?.dev) || 'This machine'} isn’t connected — hang on.`);
     return;
   }
   haptic();
   box.value = '';
+  if (tab) tab.draft = '';
   autoResize();
   const localMessageId = state.projection?.addLocalUserMessage(text);
   state.turnActive = true;
+  if (tab) tab.lastTurnActive = true;
   chat.forceStick = true;
   scheduleRenderChat();
   try {
@@ -1301,6 +2022,7 @@ async function send() {
     });
   } catch (e) {
     state.turnActive = false;
+    if (tab) tab.lastTurnActive = false;
     if (localMessageId) state.projection?.removeLocalMessage(localMessageId);
     if (!box.value) { box.value = text; autoResize(); } // let the user retry
     toast(`Send failed: ${e?.message || e}`);
@@ -1324,6 +2046,10 @@ function autoResize() {
   updateComposer();
 }
 function short(p) { return p ? p.split('/').slice(-1)[0] : ''; }
+function truncate(s, n) {
+  if (!s) return '';
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
 function rel(ts) {
   if (!ts) return '';
   const raw = typeof ts === 'number' ? ts : Date.parse(ts);
@@ -1336,6 +2062,7 @@ function rel(ts) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+// --- wiring ---
 $('#send').onclick = send;
 $('#stop').onclick = interrupt;
 hapticize($('#send'));
@@ -1349,13 +2076,119 @@ $('#input').addEventListener('input', autoResize);
 $('#input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
-window.addEventListener('popstate', (e) => {
-  state.threadId = e.state?.threadId || null;
-  state.threadTitle = e.state?.title || '';
-  state.threadDeviceId = e.state?.deviceId || (state.threadId ? state.devices[0]?.id : null);
-  if (!state.devices.length) return;
-  if (state.threadId) navigate(() => openThread(state.threadDeviceId, state.threadId, state.threadTitle));
-  else navigate(() => showSessions());
+
+$('#home-btn').onclick = () => {
+  if (state.screen === 'home' || state.mode !== 'normal') return;
+  navigate(() => {
+    showHome();
+    // Leaving a session via Home replaces the entry: platform back from Home
+    // exits the app like any front page, never re-traps in a closed view.
+    if (history.state?.threadId || history.state?.ephemeral) history.replaceState(null, '');
+  });
+};
+$('#tab-new').onclick = newSessionTab;
+$('#home-new').onclick = newSessionTab;
+$('#search').addEventListener('input', (e) => {
+  state.query = e.target.value;
+  renderSessions();
 });
+
+$('#ctx-toggle').onclick = () => {
+  state.ctxOpen = !state.ctxOpen;
+  persistCtxOpen();
+  renderSessionChrome();
+  renderStrip();
+};
+const closeCtx = () => {
+  state.ctxOpen = false;
+  persistCtxOpen();
+  renderSessionChrome();
+  renderStrip();
+  $('#ctx-toggle')?.focus();
+};
+$('#ctx-close').onclick = closeCtx;
+$('#drawer-scrim').onclick = closeCtx;
+for (const b of document.querySelectorAll('[data-ctxtab]')) {
+  b.onclick = () => {
+    state.ctxTab = b.dataset.ctxtab;
+    renderCtxTabs();
+    renderCtxBody(true);
+  };
+}
+for (const b of document.querySelectorAll('[data-seg]')) {
+  b.onclick = () => {
+    state.mobilePane = b.dataset.seg;
+    renderSessionChrome();
+  };
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (surface) { closeSurface(true); return; }
+    if (state.screen === 'session' && state.ctxOpen && layout() === 'tablet') closeCtx();
+    return;
+  }
+  // Focus trap for modal surfaces (sheet / dialog).
+  if (e.key === 'Tab' && surface?.modal) {
+    const box = $('#overlay-root').lastElementChild;
+    if (!box) return;
+    const focusables = [...box.querySelectorAll('button, input, textarea, [tabindex="0"]')].filter((n) => !n.disabled);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return;
+  }
+  // Roving focus inside tablists and radiogroups.
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+    const role = e.target.getAttribute?.('role');
+    if (role !== 'tab' && role !== 'radio') return;
+    const list = e.target.closest('[role="tablist"], [role="radiogroup"]');
+    if (!list) return;
+    const items = [...list.querySelectorAll(`[role="${role}"]`)].filter((n) => !n.disabled);
+    let i = items.indexOf(e.target);
+    if (i < 0) return;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft') i = (i - 1 + items.length) % items.length;
+    else if (e.key === 'ArrowRight') i = (i + 1) % items.length;
+    else if (e.key === 'Home') i = 0;
+    else i = items.length - 1;
+    items[i].focus();
+  }
+});
+
+window.addEventListener('popstate', (e) => {
+  closeSurface(false);
+  if (!state.devices.length || state.mode !== 'normal') return;
+  stashDraft();
+  const s = e.state;
+  if (s?.threadId) {
+    const deviceId = s.deviceId || state.devices[0]?.id;
+    navigate(() => openTabForThread(deviceId, s.threadId, s.title || '', { history: 'none' }));
+  } else if (s?.ephemeral && state.tabs.some((t) => t.key === s.tabKey)) {
+    navigate(() => selectTab(s.tabKey, { history: 'none' }));
+  } else {
+    navigate(() => showHome());
+  }
+});
+
+// Re-measure tab overflow on resize; re-layout the workspace on breakpoint
+// changes (never touching the chat log itself).
+let resizeRaf = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(renderStrip);
+});
+for (const mq of [mqDesk, mqTab]) {
+  mq.addEventListener('change', () => {
+    renderStrip();
+    if (state.screen === 'session') {
+      renderSessionChrome();
+      const tab = activeTab();
+      if (tab?.ephemeral) renderEphemeral(tab);
+    }
+  });
+}
 
 boot();
