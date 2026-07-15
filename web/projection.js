@@ -40,7 +40,7 @@ export function createProjection() {
       case 'commandExecution':
         return { role: 'tool', kind: 'command', command: it.command, status: it.status || 'running', text: it.aggregatedOutput || '' };
       case 'fileChange':
-        return { role: 'tool', kind: 'fileChange', text: summarizeFileChange(it) };
+        return { role: 'tool', kind: 'fileChange', text: summarizeFileChange(it), files: fileChangePaths(it) };
       case 'mcpToolCall':
         return { role: 'tool', kind: 'tool', text: `${it.server || ''}·${it.tool || 'tool'}` };
       case 'webSearch':
@@ -184,6 +184,12 @@ function textInputOf(input) {
 function summarizeFileChange(it) {
   const changes = it.changes || it.fileChanges || [];
   return changes.length ? `edited ${changes.length} file(s)` : 'file change';
+}
+
+function fileChangePaths(it) {
+  return (it.changes || it.fileChanges || [])
+    .map((c) => c?.path || c?.file || '')
+    .filter(Boolean);
 }
 
 function decodeChunk(chunk) {
