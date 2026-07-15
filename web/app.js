@@ -84,7 +84,8 @@ const layout = () => (mqDesk.matches ? 'desktop' : mqTab.matches ? 'tablet' : 'm
 // ever removes the control, the overlay is just an invisible checkbox —
 // silent, harmless. Android gets navigator.vibrate in the handlers instead.
 // Overlays go on deliberately few controls — commitments and state
-// changes, never mere touches — keep it that way.
+// changes, never mere touches — keep it that way. Never put one inside a
+// scroll gesture surface: the native input can capture a pan as a toggle.
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -1140,7 +1141,6 @@ function renderChips() {
   const all = el('button', 'chip-btn', 'All');
   all.setAttribute('aria-pressed', String(state.filter === 'all'));
   if (totalCount) all.append(el('span', 'cnt', String(totalCount)));
-  if (state.filter !== 'all') hapticize(all); // only ticks when tapping it changes something
   all.onclick = () => { if (state.filter !== 'all') haptic(); navigate(() => { state.filter = 'all'; renderChips(); renderSessions(); }); };
   bar.append(all);
 
@@ -1157,7 +1157,6 @@ function renderChips() {
     if (n) chip.append(el('span', 'cnt', String(n)));
     chip.onclick = () => chipTap(dev);
     attachLongPress(chip, () => openMachineActions(dev, chip));
-    hapticize(chip);
     bar.append(chip);
   }
 
@@ -1198,14 +1197,40 @@ function chipTap(dev) {
 function attachLongPress(node, fn) {
   let timer = null;
   let fired = false;
-  const start = () => { fired = false; timer = setTimeout(() => { fired = true; haptic(); fn(); }, 480); };
+  let dragged = false;
+  let startX = 0;
+  let startY = 0;
+  let pointerId = null;
+  const start = (e) => {
+    fired = false;
+    dragged = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    pointerId = e.pointerId;
+    timer = setTimeout(() => { fired = true; haptic(); fn(); }, 480);
+  };
   const cancel = () => clearTimeout(timer);
+  const move = (e) => {
+    if (e.pointerId !== pointerId || dragged) return;
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) < 8) return;
+    dragged = true;
+    cancel();
+  };
   node.addEventListener('pointerdown', start);
+  node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', cancel);
   node.addEventListener('pointerleave', cancel);
-  node.addEventListener('pointercancel', cancel);
-  node.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!fired) fn(); });
-  node.addEventListener('click', (e) => { if (fired) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  node.addEventListener('pointercancel', () => { dragged = true; cancel(); });
+  node.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!fired && !dragged) fn(); });
+  node.addEventListener('click', (e) => {
+    if (fired || dragged) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+    fired = false;
+    dragged = false;
+    pointerId = null;
+  }, true);
 }
 
 // --- overlays: anchored popover (desktop/tablet), sheet (mobile), dialog ---
