@@ -1,0 +1,62 @@
+name: WASM Asset Check
+
+on:
+  pull_request:
+    paths:
+      - 'web/transport.js'
+      - 'web/vendor/iroh/**'
+      - 'scripts/package-wasm.mjs'
+      - 'wasm/build.sh'
+      - 'package.json'
+      - 'daemon/crates/doggypile/build.rs'
+      - 'daemon/crates/doggypile/src/cli/web.rs'
+      - '.github/workflows/wasm-assets.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/transport.js'
+      - 'web/vendor/iroh/**'
+      - 'scripts/package-wasm.mjs'
+      - 'wasm/build.sh'
+      - 'package.json'
+      - 'daemon/crates/doggypile/build.rs'
+      - 'daemon/crates/doggypile/src/cli/web.rs'
+      - '.github/workflows/wasm-assets.yml'
+
+concurrency:
+  group: doggypile-wasm-assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Verify content-addressed assets
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify hashes and append-only history
+        env:
+          HISTORY_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$HISTORY_REF" && ! "$HISTORY_REF" =~ ^0+$ ]]; then
+            npm run check:wasm-assets -- --history-ref "$HISTORY_REF"
+          else
+            npm run check:wasm-assets
+          fi
+
+      - name: Test embedded asset routing
+        working-directory: daemon
+        run: cargo test -p doggypile --lib cli::web::tests

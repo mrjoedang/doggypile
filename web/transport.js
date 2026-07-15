@@ -4,7 +4,7 @@
 // JSON-RPC directly on the doggypile stream.
 //
 // Interface is unchanged from the old transport: connect(...) -> { sendLine, close }.
-import init, { Channel } from './vendor/iroh/doggypile_transport.js?v=20260705-paths';
+import init, { Channel } from './vendor/iroh/69aa5ee426524995868877736a69c802f5618c28316f49053e8fec8e3eae4d13/doggypile_transport.js';
 
 const ALPN = new TextEncoder().encode('doggypile/1');
 const enc = new TextEncoder();
