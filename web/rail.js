@@ -11,6 +11,7 @@ const TAP_MS = 350;
 const CANCEL_X = 34;
 const PEEK_DEBOUNCE_MS = 90;
 const CONTENT_THROTTLE_MS = 70;
+const COMPAT_CLICK_GUARD_MS = 700;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
@@ -58,6 +59,32 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
   let lastPillAt = 0;
   let lastPillTab = null;
   let lastDirection = 1;
+  let suppressClickUntil = 0;
+
+  // A touch tap is committed from pointerup so the rail can distinguish it
+  // from a scrub. iOS follows that with a compatibility click; by then a Home
+  // tap may already have hidden the rail and revealed a session Close button
+  // under the same finger. Swallow only that follow-on pointer click. Keyboard
+  // activation has detail === 0 and remains handled by the buttons below.
+  const suppressCompatibilityClick = (event) => {
+    if (event.detail === 0 || !suppressClickUntil) return;
+    if (performance.now() > suppressClickUntil) {
+      suppressClickUntil = 0;
+      return;
+    }
+    suppressClickUntil = 0;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  // If the browser suppresses the compatibility click entirely, do not let
+  // the stale guard consume a deliberate fast tap on the newly shown Home UI.
+  // A real second tap always has its own pointerdown; a compatibility click
+  // does not.
+  const releaseCompatibilityClickGuard = (event) => {
+    if (event.target !== strip) suppressClickUntil = 0;
+  };
+  document.addEventListener('click', suppressCompatibilityClick, true);
+  document.addEventListener('pointerdown', releaseCompatibilityClickGuard, true);
 
   const statusOf = (tab) => getStatus(tab);
   const sorted = (input) => {
@@ -323,6 +350,10 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
 
   strip.addEventListener('pointerdown', (event) => {
     if (!visible || gesture || event.button > 0) return;
+    if (event.pointerType !== 'mouse') {
+      if (event.cancelable) event.preventDefault();
+      suppressClickUntil = performance.now() + COMPAT_CLICK_GUARD_MS;
+    }
     try { strip.setPointerCapture(event.pointerId); } catch { /* capture is best effort */ }
     gesture = {
       pointerId: event.pointerId,
@@ -355,6 +386,7 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
 
   strip.addEventListener('pointerup', (event) => {
     if (!gesture || event.pointerId !== gesture.pointerId || gesture.done) return;
+    if (event.pointerType !== 'mouse' && event.cancelable) event.preventDefault();
     if (gesture.scrubbing) {
       finishGesture(true);
       return;
@@ -379,7 +411,10 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
   });
 
   strip.addEventListener('pointercancel', (event) => {
-    if (gesture?.pointerId === event.pointerId) finishGesture(false);
+    if (gesture?.pointerId === event.pointerId) {
+      suppressClickUntil = 0;
+      finishGesture(false);
+    }
   });
 
   grid.addEventListener('click', (event) => {
@@ -443,6 +478,8 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
       clearInterval(clock);
       clearTimeout(peekTimer);
       clearTimeout(pillTimer);
+      document.removeEventListener('click', suppressCompatibilityClick, true);
+      document.removeEventListener('pointerdown', releaseCompatibilityClickGuard, true);
       document.removeEventListener('focusin', dimOnFocus);
       document.removeEventListener('focusout', undimOnFocus);
       mount.classList.remove('rail-scrubbing');
