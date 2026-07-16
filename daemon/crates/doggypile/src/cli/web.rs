@@ -90,6 +90,11 @@ fn asset_for(path: &str) -> Option<Asset> {
             "text/javascript; charset=utf-8",
             NO_CACHE,
         ),
+        "/rail.js" => asset(
+            include_bytes!("../../../../../web/rail.js"),
+            "text/javascript; charset=utf-8",
+            NO_CACHE,
+        ),
         "/styles.css" => asset(
             include_bytes!("../../../../../web/styles.css"),
             "text/css; charset=utf-8",
@@ -236,6 +241,7 @@ mod tests {
     fn mutable_and_legacy_assets_are_not_cached_immutably() {
         for path in [
             "/",
+            "/rail.js",
             "/transport.js",
             "/vendor/iroh/current.txt",
             "/vendor/iroh/doggypile_transport.js",

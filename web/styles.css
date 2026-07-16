@@ -187,6 +187,7 @@ code {
 .topbtn .icon { width: 17px; height: 17px; }
 .topbtn[aria-pressed="true"] { background: var(--accent-dim); color: var(--accent); }
 @media (max-width: 699px) {
+  .wstrip, .segbar { display: none !important; }
   .home-label { display: none; }
   .wtab { flex-basis: 128px; }
 }
@@ -197,6 +198,10 @@ code {
 .sdot[data-s="connecting"] { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
 .sdot[data-s="offline"], .sdot[data-s="expired"], .sdot[data-s="noagent"] { background: var(--err); }
 .sdot.live { background: var(--warn); box-shadow: none; animation: pulse 1.2s ease-in-out infinite; }
+.sdot.tab-needs-you { background: var(--warn); box-shadow: 0 0 5px rgba(230, 176, 78, 0.45); animation: none; }
+.sdot.tab-working { background: var(--accent); box-shadow: none; animation: pulse 1.2s ease-in-out infinite; }
+.sdot.tab-error { background: var(--err); box-shadow: none; animation: none; }
+.sdot.tab-idle { background: rgba(130, 207, 151, 0.5); box-shadow: none; animation: none; }
 
 /* ---------- screens ---------- */
 .screen { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
@@ -457,16 +462,35 @@ body.unpaired .wstrip { display: none; }
 .session {
   display: flex;
   align-items: center;
-  gap: 9px;
   width: calc(100% + 20px);
   margin: 0 -10px;
-  text-align: left;
-  padding: 9px 10px;
   min-height: 46px;
   border-radius: 10px;
   transition: background 0.1s ease;
 }
-.session:hover, .session:active { background: var(--surface); }
+.session:hover, .session:active, .session:focus-within { background: var(--surface); }
+.session-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 46px;
+  padding: 9px 4px 9px 10px;
+  text-align: left;
+}
+.session-close {
+  width: 32px;
+  height: 32px;
+  margin-right: 5px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--text-faint);
+}
+.session-close:hover, .session-close:active { color: var(--text); background: var(--surface-2); }
+.session-close svg { width: 13px; height: 13px; }
 .session-main { flex: 1 1 auto; min-width: 0; }
 .session-title {
   font-size: 14.5px;
@@ -488,7 +512,22 @@ body.unpaired .wstrip { display: none; }
   font-variant-numeric: tabular-nums;
 }
 .session-side { flex: 0 0 auto; font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.session-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); animation: pulse 1.2s ease-in-out infinite; flex: 0 0 auto; }
+.session-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(130, 207, 151, 0.5); flex: 0 0 auto; }
+.session-dot.status-needs-you { background: var(--warn); }
+.session-dot.status-working { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.session-dot.status-error { background: var(--err); }
+.session-dot.status-connecting { background: var(--text-faint); }
+.session-unread {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font: 700 10px/19px var(--font-mono);
+  text-align: center;
+  flex: 0 0 auto;
+}
 .home-empty { color: var(--text-faint); font-size: 13.5px; padding: 22px 0; text-align: center; }
 
 .skeleton-row {
@@ -1161,8 +1200,10 @@ body.unpaired .wstrip { display: none; }
   .drawer-scrim { position: absolute; inset: 0; z-index: 14; background: rgba(0, 0, 0, 0.45); animation: fade-in 0.18s ease-out; }
 }
 @keyframes slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-/* Mobile: full surfaces switched by the segmented control. */
+/* Mobile: full-bleed single chat surface; retain only OS safe-area spacing. */
 @media (max-width: 699px) {
+  #home .home-wrap { padding-top: max(18px, calc(env(safe-area-inset-top) + 12px)); }
+  .sessionview { padding-top: env(safe-area-inset-top); }
   .ctxpane { flex: 1 1 auto; width: auto; }
   .drawer-scrim { display: none !important; }
   .msg { max-width: 92%; }
@@ -1283,6 +1324,329 @@ body.unpaired .wstrip { display: none; }
 .sheet-btns { display: flex; gap: 9px; }
 .sheet-btns .btn { flex: 1 1 0; }
 
+/* ---------- mobile session rail: Calm Lane ---------- */
+.session-rail {
+  --rail-safe-top: env(safe-area-inset-top, 0px);
+  --rail-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --rail-scrub-hit-width: 112px;
+  --rail-lane-width: 32px;
+  --rail-lane-right: 68px;
+  position: fixed;
+  inset: 0;
+  z-index: 18;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.24s cubic-bezier(.25, .8, .3, 1);
+}
+.session-rail.composer-focused { opacity: 0.5; }
+/* The visual overview stays dimmed while typing, but its edge hit target must
+   yield to composer controls when a short keyboard viewport makes them overlap. */
+.session-rail.composer-focused .session-rail-strip { pointer-events: none; }
+.session-rail-glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012) 46%), rgba(31, 29, 34, 0.55);
+  -webkit-backdrop-filter: blur(22px) saturate(1.55);
+  backdrop-filter: blur(22px) saturate(1.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+}
+/* Dots stand on their own; the old glass capsules made the rail feel
+   mechanical and added a second competing scrub surface. */
+.session-rail-back, .session-rail-lane { display: none; }
+.session-rail-items { position: absolute; inset: 0; }
+.session-rail-item {
+  --rail-flip-y: 0px;
+  position: absolute;
+  right: 8px;
+  z-index: 3;
+  width: 24px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transform: translateX(0) translateY(var(--rail-flip-y));
+  transition: transform 0.42s cubic-bezier(.3, 1.35, .4, 1), opacity 0.2s ease;
+}
+/* Move the whole stack clear of the finger once scrubbing begins. Its
+   vertical slots remain stable while the pointer navigates up and down. */
+.session-rail.scrubbing .session-rail-item {
+  transform: translateX(-64px) translateY(var(--rail-flip-y));
+  transition-duration: 0.24s;
+}
+.session-rail-dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-ink);
+  font: 700 8px/1 var(--font-mono);
+  background: rgba(130, 207, 151, 0.42);
+}
+.session-rail-dot.status-needs-you { background: var(--warn); }
+.session-rail-dot.status-working {
+  background: var(--accent);
+  animation: rail-pulse 1.7s ease-in-out infinite;
+}
+.session-rail-dot.status-error { background: var(--err); }
+.session-rail-dot.status-connecting { background: var(--text-faint); }
+.session-rail-dot.status-idle { background: rgba(130, 207, 151, 0.42); }
+.session-rail-dot.current::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid rgba(113, 110, 104, 0.85);
+  border-radius: 50%;
+}
+.session-rail-dot.focused::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 2px solid var(--text);
+  border-radius: 50%;
+  box-shadow: 0 0 9px rgba(242, 240, 237, 0.4);
+  animation: rail-focus-step 0.09s ease-out;
+}
+@keyframes rail-focus-step { from { transform: scale(1.14); opacity: 0.4; } }
+@keyframes rail-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 179, 94, 0.45); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px rgba(240, 179, 94, 0); opacity: 0.72; }
+}
+.session-rail-grid {
+  position: absolute;
+  right: 9px;
+  z-index: 3;
+  width: 22px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--text-dim);
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+/* The grid shortcut is a tap target, not a scrub target: it hides under the
+   thumb track while scrubbing and fades back once the gesture ends. */
+.session-rail.scrubbing .session-rail-grid { opacity: 0; }
+.session-rail-grid svg { width: 14px; height: 14px; }
+.session-rail-strip {
+  position: absolute;
+  right: 0;
+  z-index: 7;
+  width: 56px;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The hit zone remains generous, while its visible affordance is one flat,
+   minimal capsule beneath the thumb. */
+.session-rail.scrubbing .session-rail-strip {
+  width: var(--rail-scrub-hit-width);
+  background: none;
+  box-shadow: none;
+}
+.session-rail.scrubbing .session-rail-strip::before {
+  content: "";
+  position: absolute;
+  inset: 0 4px 0 auto;
+  width: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: none;
+}
+/* Quiet horizontal ticks inside the track hint at the vertical scrub axis.
+   They fade out toward both ends and never touch the shifted dot lane. */
+.session-rail.scrubbing .session-rail-strip::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  right: 13px;
+  width: 18px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.15) 0,
+    rgba(255, 255, 255, 0.15) 1.5px,
+    transparent 1.5px,
+    transparent 24px
+  );
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 36px), transparent);
+}
+/* Finger-position marker: one bright tick riding just left of the track
+   outline at pointer Y. It sits inward of the thumb's contact patch
+   (roughly the outer 45px), so it stays visible while scrubbing, and it
+   echoes the track's horizontal ticks rather than adding a new shape. */
+.session-rail-notch {
+  position: absolute;
+  right: 46px;
+  z-index: 8;
+  width: 16px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 999px;
+  opacity: 0;
+  background: rgba(255, 255, 255, 0.92);
+  transition: opacity 0.12s ease;
+}
+.session-rail.scrubbing .session-rail-notch { opacity: 1; }
+/* The scrub preview is one fixed card: its box never moves or resizes while
+   the focused session changes, only its contents swap. Sized to read like a
+   session card rather than a caption — tall enough for a conversation tail,
+   while clearing the shifted dot lane, track, and safe areas. */
+.session-rail-pill {
+  position: absolute;
+  right: calc(var(--rail-lane-right) + var(--rail-lane-width) + 4px);
+  z-index: 5;
+  width: min(300px, calc(100% - 122px));
+  height: clamp(288px, 52vh, 432px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 0.18s cubic-bezier(.25, .8, .3, 1), transform 0.26s cubic-bezier(.3, 1.35, .4, 1);
+}
+.session-rail.scrubbing .session-rail-pill { opacity: 1; transform: none; }
+.session-rail-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+}
+.session-rail-pill-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: rgba(130, 207, 151, 0.55);
+}
+.session-rail-pill-dot.status-needs-you { background: var(--warn); }
+.session-rail-pill-dot.status-working { background: var(--accent); }
+.session-rail-pill-dot.status-error { background: var(--err); }
+.session-rail-pill-dot.status-connecting { background: var(--text-faint); }
+.session-rail-pill-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.session-rail-pill-status.status-needs-you { color: var(--warn); }
+.session-rail-pill-status.status-working { color: var(--accent); }
+.session-rail-pill-status.status-error { color: var(--err); }
+.session-rail-pill-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.session-rail-pill-machine {
+  margin-left: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font: 10px/1 var(--font-mono);
+  color: var(--text-faint);
+}
+/* A preview reads like a compact document: the latest four messages start at
+   the top in chronological order, matching the full chat's reading direction. */
+.session-rail-pill-excerpt {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 2px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 28px), transparent);
+}
+.session-rail-pill-msg {
+  flex: 0 0 auto;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.session-rail-pill-msg.role-user {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+.session-rail-pill-empty {
+  margin: auto 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.session-rail-pill-activity {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.session-rail-pill-activity.status-needs-you { color: var(--warn); font-weight: 600; }
+.session-rail-pill-activity.status-working { color: var(--accent); }
+.session-rail-pill-activity.status-error { color: var(--err); }
+.session-rail-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 16;
+  pointer-events: none;
+  opacity: 0;
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 0 90px 20px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(240, 179, 94, 0.26);
+  transition: opacity 0.3s cubic-bezier(.25, .8, .3, 1);
+}
+.session-rail-vignette.show {
+  opacity: 1;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .session-rail-glass { background: var(--surface-2); }
+}
+@media (min-width: 700px) {
+  .session-rail, .session-rail-vignette { display: none !important; }
+}
+/* While scrubbing, the chat surface eases left so the shifted dot lane reads
+   against clear space instead of overlapping the conversation edge. The class
+   lives on the rail's mount (#sessionview), not the pane, because a transform
+   on the mount would drag its fixed-position rail layers along with it. */
+@media (max-width: 699px) {
+  .chatpane { transition: transform 0.24s cubic-bezier(.25, .8, .3, 1); }
+  .rail-scrubbing .chatpane { transform: translateX(-52px); }
+}
 /* ---------- view transitions ---------- */
 /* Navigation swaps (home <-> session, filter changes) crossfade via the
    View Transition API — deliberately quiet: no shared elements, nothing to

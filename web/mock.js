@@ -17,15 +17,17 @@ export async function installAgent() {
   return [{ name: 'opencode', available: true, wire: 'jsonl' }];
 }
 
-const scenario = new URLSearchParams(location.search).get('mock') || 'rich';
+const params = new URLSearchParams(location.search);
+const scenario = params.get('mock') || 'rich';
+const railMode = params.has('rail');
 
 const now = Math.floor(Date.now() / 1000);
 const threads = scenario === 'empty' ? [] : [
-  { id: 't1', name: 'Fix flaky pairing test in daemon', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 90 },
-  { id: 't2', name: 'Add retry backoff to iroh reconnect', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 60 * 47 },
-  { id: 't3', name: null, preview: 'why is bun install slow on CI runners', cwd: '/Users/joe/src/infra', updatedAt: now - 3600 * 5 },
-  { id: 't4', name: 'Refactor opencode bridge translate layer', cwd: '/Users/joe/src/projects/doggypile/daemon', updatedAt: now - 86400 * 2 },
-  { id: 't5', name: 'Write release notes for v0.1.1', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 86400 * 6 },
+  { id: 't1', name: 'Fix flaky pairing test in daemon', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 90, mockStatus: railMode ? 'working' : undefined, mockActivity: 'Running cargo test (38/50)…' },
+  { id: 't2', name: 'Add retry backoff to iroh reconnect', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 60 * 47, mockStatus: railMode ? 'working' : undefined, mockActivity: 'Grepping for PairPayload…' },
+  { id: 't3', name: null, preview: 'why is bun install slow on CI runners', cwd: '/Users/joe/src/infra', updatedAt: now - 3600 * 5, mockStatus: railMode ? 'needs-you' : undefined, mockUnread: railMode ? 2 : undefined, mockActivity: 'Waiting for your reply' },
+  { id: 't4', name: 'Refactor opencode bridge translate layer', cwd: '/Users/joe/src/projects/doggypile/daemon', updatedAt: now - 86400 * 2, mockStatus: railMode ? 'error' : undefined, mockActivity: 'Machine unreachable' },
+  { id: 't5', name: 'Write release notes for v0.1.1', cwd: '/Users/joe/src/projects/doggypile', updatedAt: now - 86400 * 6, mockStatus: railMode ? 'idle' : undefined },
 ];
 
 const t1History = [
@@ -43,7 +45,11 @@ const t1History = [
 function item(type, id, extra) { return { type, id, ...extra }; }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function connect({ onLine, onMetrics, onClose }) {
+export async function connect({ nodeId, onLine, onMetrics, onClose }) {
+  if (railMode && nodeId === 'mock2') {
+    await sleep(700);
+    throw new Error('mock-studio unreachable — scripted rail error');
+  }
   if (scenario === 'offline') {
     await sleep(700);
     throw new Error('failed to reach node: relay connection timed out');
@@ -65,10 +71,32 @@ export async function connect({ onLine, onMetrics, onClose }) {
   }, 1500);
   onMetrics?.({ agent: 'codex', timings: { wasm: 12, iroh: 180, auth: 40 }, path: { selected: 'direct', rtt_ms: 23 } });
 
+  const railTimers = [];
+  if (railMode && nodeId === 'mock') {
+    railTimers.push(setTimeout(() => {
+      notify('turn/started', { threadId: 't1', turn: { id: 'rail-turn-t1', status: 'inProgress' } });
+      notify('turn/started', { threadId: 't2', turn: { id: 'rail-turn-t2', status: 'inProgress' } });
+      notify('item/started', { threadId: 't2', item: item('reasoning', 'rail-r2', { summary: ['Inspecting transport pool call sites…'] }) });
+    }, 900));
+    let railStep = 0;
+    const railActivityTimer = setInterval(() => {
+      railStep++;
+      const lines = ['Reading transport.rs…', 'Rewriting Pool::get…', 'Running cargo check…'];
+      notify('item/reasoning/summaryTextDelta', { threadId: 't2', itemId: 'rail-r2', delta: `${lines[railStep % lines.length]} ` });
+    }, 1800);
+    railTimers.push(railActivityTimer);
+    railTimers.push(setTimeout(() => {
+      clearInterval(railActivityTimer);
+      const text = 'Pool::get is rewritten. This changes the config format — overwrite the existing pool config?';
+      notify('item/completed', { threadId: 't2', item: item('agentMessage', 'rail-a2', { text }) });
+      notify('thread/status/changed', { threadId: 't2', status: { type: 'active', activeFlags: ['waitingOnUserInput'] } });
+    }, 20000));
+  }
+
   async function streamTurn(threadId, userText) {
     const seq = notifySeq++;
     const rid = `live-r${seq}`, cid = `live-c${seq}`, aid = `live-a${seq}`;
-    notify('turn/started', { threadId });
+    notify('turn/started', { threadId, turn: { id: `turn-${seq}`, status: 'inProgress' } });
     await sleep(500);
 
     notify('item/started', { threadId, item: item('reasoning', rid, { summary: [''] }) });
@@ -92,7 +120,7 @@ export async function connect({ onLine, onMetrics, onClose }) {
       await sleep(45); notify('item/agentMessage/delta', { threadId, itemId: aid, delta: chunk });
     }
     notify('item/completed', { threadId, item: item('agentMessage', aid, { text: answer }) });
-    notify('turn/completed', { threadId });
+    notify('turn/completed', { threadId, turn: { id: `turn-${seq}`, status: 'completed', error: null } });
   }
 
   let nextThreadId = 100;
@@ -114,13 +142,24 @@ export async function connect({ onLine, onMetrics, onClose }) {
       case 'turn/start': {
         reply(id, {});
         const text = params.input?.[0]?.text || '';
-        if (/fail/.test(text)) return; // let "fail" test the no-response path
+        if (/fail/.test(text)) {
+          return setTimeout(() => {
+            notify('turn/completed', {
+              threadId: params.threadId,
+              turn: { id: `failed-${notifySeq++}`, status: 'failed', error: { message: 'Scripted mock turn failure' } },
+            });
+            notify('thread/status/changed', { threadId: params.threadId, status: { type: 'idle' } });
+          }, 500);
+        }
         streamTurn(params.threadId, text);
         return;
       }
       case 'turn/interrupt': {
         reply(id, {});
-        return notify('turn/failed', { threadId: params.threadId });
+        return notify('turn/completed', {
+          threadId: params.threadId,
+          turn: { id: `interrupted-${notifySeq++}`, status: 'interrupted', error: null },
+        });
       }
       default: return reply(id, {});
     }
@@ -133,7 +172,12 @@ export async function connect({ onLine, onMetrics, onClose }) {
       let msg; try { msg = JSON.parse(line); } catch { return; }
       if (msg.id !== undefined) setTimeout(() => handleRequest(msg), 30);
     },
-    close: () => { closed = true; clearInterval(metricsTimer); onClose?.(); },
+    close: () => {
+      closed = true;
+      clearInterval(metricsTimer);
+      railTimers.forEach((timer) => { clearTimeout(timer); clearInterval(timer); });
+      onClose?.();
+    },
   };
 }
 

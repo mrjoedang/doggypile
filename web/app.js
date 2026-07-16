@@ -1,12 +1,16 @@
 import { makeRpc } from './rpc.js?v=20260714-tabs';
 import { createProjection } from './projection.js?v=20260714-tabs';
 import { renderMarkdown } from './markdown.js?v=20260714-tabs';
+import { createSessionRail } from './rail.js?v=20260716-preview-card';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
-const wantMock = new URLSearchParams(location.search).has('mock');
+const searchParams = new URLSearchParams(location.search);
+const wantMock = searchParams.has('mock');
+const requestedRailMock = wantMock && searchParams.has('rail');
 const mockMod = wantMock ? await import('./mock.js').catch(() => null) : null; // daemon builds don't ship mock.js
 const MOCK = !!mockMod;
+const RAIL_MOCK = MOCK && requestedRailMock;
 const { connect, installAgent, NoSupportedAgentError } = mockMod || await import('./transport.js?v=20260714-tabs');
 
 const $ = (sel) => document.querySelector(sel);
@@ -56,7 +60,7 @@ const state = {
   filter: 'all', // 'all' | device id — a view scope, never a connection switch
   mode: 'normal', // 'normal' | 'follower' | 'unpaired'
   screen: 'home', // 'home' | 'session'
-  tabs: [], // { key, deviceId, threadId, title, ephemeral, lastTurnActive, draft }
+  tabs: [], // { key, deviceId, threadId, title, lastTurnActive, unread, turnStartedAt, lastActivityAt, lastActivityTail, draft }
   active: null, // key of the selected tab (meaningful while screen === 'session')
   ctxOpen: true,
   ctxTab: 'details', // 'details' | 'activity' | 'changes'
@@ -76,6 +80,192 @@ const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) :
 const inChat = () => !!state.threadId;
 const tabKeyFor = (deviceId, threadId) => `${deviceId}:${threadId}`;
 const activeTab = () => state.tabs.find((t) => t.key === state.active) || null;
+let tabLifecycleRevision = 0;
+const touchTabLifecycle = (tab) => { tab.lifecycleRevision = ++tabLifecycleRevision; };
+
+
+const ERROR_CONN_STATES = new Set(['offline', 'expired', 'noagent']);
+
+function tabStatus(tab) {
+  const connectionStatus = connFor(tab.deviceId)?.status;
+  if (tab.turnError || ERROR_CONN_STATES.has(connectionStatus)) return 'error';
+  if (tab.waitingForUser || (tab.unread || 0) > 0) return 'needs-you';
+  if (connectionStatus === 'connecting') return 'connecting';
+  if (tab.lastTurnActive) return 'working';
+  return 'idle';
+}
+
+function threadSnapshotStatus(thread, conn) {
+  const status = thread?.status || (thread?.mockStatus ? { type: thread.mockStatus } : null);
+  const type = typeof status === 'string' ? status : status?.type;
+  const flags = typeof status === 'object' && Array.isArray(status?.activeFlags) ? status.activeFlags : [];
+  if (ERROR_CONN_STATES.has(conn?.status) || type === 'systemError' || type === 'error') return 'error';
+  if (type === 'needs-you' || flags.includes('waitingOnApproval') || flags.includes('waitingOnUserInput')) return 'needs-you';
+  if (conn?.status === 'connecting') return 'connecting';
+  if (type === 'active' || type === 'busy' || type === 'working') return 'working';
+  return 'idle';
+}
+
+function applyThreadStatus(tab, status, { markUnread = false, detail = '' } = {}) {
+  if (!status) return false;
+  const type = typeof status === 'string' ? status : status.type;
+  const flags = typeof status === 'object' && Array.isArray(status.activeFlags) ? status.activeFlags : [];
+  const waitingForApproval = flags.includes('waitingOnApproval');
+  const waitingForInput = flags.includes('waitingOnUserInput');
+  // This is deliberately status-only: doggypile starts turns with approvals
+  // disabled. An inherited interactive request can still be interrupted here;
+  // rendering full request/response forms is separate protocol/UI work. Do not
+  // mislabel a blocked inherited turn as ordinary background work meanwhile.
+  const waiting = type === 'needs-you' || waitingForApproval || waitingForInput;
+
+  if (type === 'active' || type === 'busy' || type === 'working' || type === 'needs-you') {
+    if (waiting) {
+      if (markUnread && !tab.waitingForUser && !tab.unreadForTurn && !tabIsViewed(tab)) {
+        tab.unread = Math.min(99, (tab.unread || 0) + 1);
+        tab.unreadForTurn = true;
+      }
+      tab.waitingForUser = true;
+      // Waiting is a rail/presentation state; the protocol turn is still
+      // active and must retain its Stop/interrupt path.
+      tab.lastTurnActive = true;
+      tab.turnStartedAt ||= Date.now();
+      tab.turnError = '';
+      if (waitingForApproval) tab.lastActivityTail = 'Waiting for approval';
+      else if (!tab.unreadForTurn) tab.lastActivityTail = 'Waiting for your reply';
+    } else {
+      tab.waitingForUser = false;
+      tab.lastTurnActive = true;
+      tab.turnStartedAt ||= Date.now();
+      tab.turnError = '';
+    }
+    return true;
+  }
+  // `notLoaded` is unknown, not terminal; preserve live/restored state until
+  // an authoritative active/idle notification arrives.
+  if (type === 'notLoaded') return false;
+  if (type === 'idle') {
+    tab.waitingForUser = false;
+    tab.lastTurnActive = false;
+    tab.turnStartedAt = null;
+    // Preserve the last failed-turn error through the trailing idle status;
+    // a new active turn is the acknowledgment that clears it.
+    return true;
+  }
+  if (type === 'systemError' || type === 'error') {
+    tab.waitingForUser = false;
+    tab.lastTurnActive = false;
+    tab.turnStartedAt = null;
+    tab.turnError = detail || status?.error?.message || status?.message || 'Thread error';
+    return true;
+  }
+  return false;
+}
+
+function projectionActivity(projection) {
+  const messages = projection?.toRenderList?.() || [];
+  const message = messages.slice().reverse().find((m) =>
+    (m.kind === 'command' && (m.status || 'running') === 'running')
+    || (m.role === 'assistant' && m.text));
+  if (!message) return '';
+  if (message.kind === 'command') return message.command ? `$ ${message.command}` : 'Running a command…';
+  const tail = (message.text || '').trim().split('\n').pop()?.replace(/\s+/g, ' ') || '';
+  return tail.length > 72 ? `…${tail.slice(-72)}` : tail;
+}
+
+function tabActivity(tab) {
+  const status = tabStatus(tab);
+  const conn = connFor(tab.deviceId);
+  if (status === 'error') return tab.turnError || conn?.lastDetail || 'Machine unavailable';
+  if (status === 'connecting') return conn?.lastDetail || 'Connecting…';
+  if (tab.waitingForUser) return tab.lastActivityTail || 'Waiting for your reply';
+  if (tab.key === state.active) {
+    const live = projectionActivity(state.projection);
+    if (live) return live;
+  }
+  if (tab.lastActivityTail) return tab.lastActivityTail;
+  const meta = conn?.threads?.find((thread) => thread.id === tab.threadId);
+  if (status === 'needs-you') return 'Waiting for your reply';
+  if (status === 'working') return 'Working…';
+  return meta?.preview || 'Done';
+}
+
+function tabIsViewed(tab) {
+  return state.screen === 'session' && state.active === tab.key && !document.hidden
+    && (layout() !== 'mobile' || state.mobilePane === 'session');
+}
+
+function markTabViewed(tab) {
+  if (!tab) return;
+  tab.unread = 0;
+  tab.unreadForTurn = false;
+  tab.lastViewedAt = Date.now();
+}
+
+function finishTabTurn(tab, { failed = false, detail = '', turnId = null } = {}) {
+  const effectiveTurnId = turnId || tab.activeTurnId || null;
+  // A delayed completion for turn A must never terminate a newer turn B.
+  if (turnId && tab.activeTurnId && turnId !== tab.activeTurnId) return false;
+  const duplicate = effectiveTurnId
+    ? tab.lastFinishedTurnId === effectiveTurnId || tab.terminalWithoutId
+    : !!tab.terminalWithoutId;
+  if (duplicate) {
+    if (failed && !tab.lastTurnActive) tab.turnError = detail || 'Turn failed';
+    if (effectiveTurnId && tab.terminalWithoutId) {
+      tab.lastFinishedTurnId = effectiveTurnId;
+      tab.terminalWithoutId = false;
+    }
+    return false;
+  }
+  const now = Date.now();
+  tab.lastTurnActive = false;
+  tab.waitingForUser = false;
+  tab.turnStartedAt = null;
+  tab.lastActivityAt = now;
+  tab.lastTurnEndedAt = now;
+  touchTabLifecycle(tab);
+  if (failed) tab.turnError = detail || 'Turn failed';
+  if (!duplicate && !tabIsViewed(tab) && !tab.unreadForTurn) tab.unread = Math.min(99, (tab.unread || 0) + 1);
+  tab.unreadForTurn = false;
+  if (effectiveTurnId) tab.lastFinishedTurnId = effectiveTurnId;
+  tab.terminalWithoutId = !effectiveTurnId;
+  tab.activeTurnId = null;
+  return true;
+}
+
+function recordTabActivity(tab, msg) {
+  const p = msg.params || {};
+  const method = msg.method;
+  if (tab.waitingForUser && (method.endsWith('/delta') || method.endsWith('TextDelta'))) return false;
+  let text = '';
+  if (method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
+    text = `${tab.lastActivityTail || ''}${p.delta || ''}`;
+  } else if ((method === 'item/started' || method === 'item/completed') && p.item) {
+    if (p.item.type === 'commandExecution') text = p.item.command ? `$ ${p.item.command}` : 'Running a command…';
+    else if (p.item.type === 'agentMessage') text = p.item.text || '';
+    else if (p.item.type === 'reasoning') {
+      const parts = p.item.summary?.length ? p.item.summary : p.item.content || [];
+      text = Array.isArray(parts) ? parts.join(' ') : String(parts);
+    } else if (p.item.type === 'fileChange') text = 'Editing files…';
+  }
+  if (!text) return false;
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const next = clean.length > 100 ? `…${clean.slice(-100)}` : clean;
+  if (!next || next === tab.lastActivityTail) return false;
+  tab.lastActivityTail = next;
+  tab.lastActivityAt = Date.now();
+  return true;
+}
+
+let activityFlushTimer = null;
+function scheduleTabActivityFlush() {
+  if (activityFlushTimer) return;
+  activityFlushTimer = setTimeout(() => {
+    activityFlushTimer = null;
+    persistTabs();
+    renderStrip();
+    if (state.screen === 'home') renderSessions();
+  }, 300);
+}
 
 // --- responsive layout ---
 const mqDesk = matchMedia('(min-width: 1100px)');
@@ -211,7 +401,11 @@ function persistTabs() {
     sessionStorage.setItem(TABS_KEY, JSON.stringify({
       v: 1,
       active: state.active,
-      tabs: state.tabs.filter((t) => !t.ephemeral).map(({ deviceId, threadId, title }) => ({ deviceId, threadId, title })),
+      tabs: state.tabs.filter((t) => !t.ephemeral).map(({ deviceId, threadId, title, unread, turnStartedAt, lastActivityAt, lastActivityTail, lastViewedAt, turnError, unreadForTurn }) => ({
+        deviceId, threadId, title, unread: unread || 0, turnStartedAt: turnStartedAt || null,
+        lastActivityAt: lastActivityAt || 0, lastActivityTail: lastActivityTail || '', lastViewedAt: lastViewedAt || 0,
+        turnError: turnError || '', unreadForTurn: !!unreadForTurn,
+      })),
     }));
   } catch { /* storage full or unavailable: tabs stay in-memory */ }
 }
@@ -225,7 +419,14 @@ function restoreTabs() {
       if (!state.devices.some((d) => d.id === t.deviceId)) continue;
       const key = tabKeyFor(t.deviceId, t.threadId);
       if (state.tabs.some((x) => x.key === key)) continue;
-      state.tabs.push({ key, deviceId: t.deviceId, threadId: t.threadId, title: t.title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' });
+      // Active/waiting server requests are connection-scoped and cannot be
+      // resumed from browser storage. Live notifications re-establish them.
+      state.tabs.push({
+        key, deviceId: t.deviceId, threadId: t.threadId, title: t.title || 'Session', ephemeral: false,
+        lastTurnActive: false, unread: Math.max(0, Number(t.unread) || 0), turnStartedAt: t.turnStartedAt || null,
+        lastActivityAt: t.lastActivityAt || 0, lastActivityTail: t.lastActivityTail || '', lastViewedAt: t.lastViewedAt || 0,
+        turnError: t.turnError || '', waitingForUser: false, unreadForTurn: !!t.unreadForTurn, draft: '',
+      });
     }
     if (saved.active && state.tabs.some((t) => t.key === saved.active)) state.active = saved.active;
   } catch { /* corrupted: start with no tabs */ }
@@ -358,7 +559,7 @@ function markConn(conn, status, detail) {
   if (detail !== undefined) conn.lastDetail = detail || '';
   renderChips();
   renderStrip();
-  if (state.screen === 'home' && (status === 'connected' || conn.threads === null)) renderSessions();
+  if (state.screen === 'home') renderSessions();
   if (state.screen === 'session') {
     const tab = activeTab();
     if (tab?.deviceId === conn.dev.id) {
@@ -379,9 +580,11 @@ function dropConn(id) {
   state.conns.delete(id);
 }
 
+let railMockSeeded = false;
 async function loadThreads(conn) {
   if (conn.threadsLoading || !conn.rpc) return;
   conn.threadsLoading = true;
+  const lifecycleBaseline = new Map(state.tabs.map((tab) => [tab.key, tab.lifecycleRevision || 0]));
   try {
     const res = await conn.rpc.request('thread/list', {});
     conn.threads = res?.data || [];
@@ -400,6 +603,52 @@ async function loadThreads(conn) {
     if (!t) continue;
     if (t.name) tab.title = t.name;
     else if (t.preview && (!tab.title || tab.title === 'Session')) tab.title = t.preview;
+    const updated = tsVal(t);
+    if (updated) tab.lastActivityAt = Math.max(tab.lastActivityAt || 0, updated);
+    const lifecycleUnchanged = lifecycleBaseline.get(tab.key) === (tab.lifecycleRevision || 0);
+    const threadStatus = t.status || (t.mockStatus ? { type: t.mockStatus } : null);
+    const terminalSnapshot = threadStatus?.type === 'idle';
+    // Several bridges publish static idle list snapshots even for a live
+    // process. A lifecycle notification, not thread/list, must end known work.
+    const staleIdleDuringLiveTurn = terminalSnapshot && tab.lastTurnActive;
+    if (lifecycleUnchanged && !staleIdleDuringLiveTurn) {
+      applyThreadStatus(tab, threadStatus, { detail: t.mockActivity });
+      if (tab.lastTurnActive && ['active', 'busy', 'working', 'needs-you'].includes(threadStatus?.type)) {
+        touchTabLifecycle(tab, conn.attempt);
+      }
+      if (t.mockUnread != null) tab.unread = Number(t.mockUnread) || 0;
+    }
+  }
+  if (RAIL_MOCK && !railMockSeeded && conn.dev.id === state.devices[0]?.id && conn.threads?.length) {
+    railMockSeeded = true;
+    const now = Date.now();
+    for (const [index, thread] of conn.threads.slice(0, 6).entries()) {
+      const deviceId = index === 3 && state.devices[1] ? state.devices[1].id : conn.dev.id;
+      const key = tabKeyFor(deviceId, thread.id);
+      if (state.tabs.some((tab) => tab.key === key)) continue;
+      const mockStatus = thread.mockStatus || (index === 0 ? 'working' : index === 2 ? 'needs-you' : 'idle');
+      state.tabs.push({
+        key, deviceId, threadId: thread.id, title: thread.name || thread.preview || 'Session', ephemeral: false,
+        lastTurnActive: mockStatus === 'working', unread: thread.mockUnread ?? (mockStatus === 'needs-you' ? 2 : 0),
+        waitingForUser: mockStatus === 'needs-you',
+        turnStartedAt: mockStatus === 'working' ? now - (index + 2) * 60_000 : null,
+        lastActivityAt: tsVal(thread) || now - index * 60_000,
+        lastActivityTail: thread.mockActivity || (mockStatus === 'working' ? 'Running checks…' : ''), draft: '',
+        turnError: mockStatus === 'error' ? (thread.mockActivity || 'Mock turn failed') : '',
+      });
+      cacheThread(key, {
+        id: thread.id,
+        turns: [{ items: [
+          { type: 'userMessage', id: `mock-user-${thread.id}`, content: [{ type: 'text', text: 'Where did we leave off?' }] },
+          { type: 'agentMessage', id: `mock-agent-${thread.id}`, text: thread.mockActivity || thread.preview || 'This session is ready to continue.' },
+        ] }],
+      });
+    }
+    if (!state.active && state.tabs.length) {
+      state.active = state.tabs[0].key;
+      history.replaceState({ deviceId: state.tabs[0].deviceId, threadId: state.tabs[0].threadId, title: state.tabs[0].title }, '');
+      selectTab(state.active, { history: 'none' });
+    }
   }
   persistTabs();
   renderChips(); // session counts live on the chips
@@ -410,6 +659,9 @@ async function loadThreads(conn) {
     if (tab && tab.deviceId === conn.dev.id && tab.threadId === state.threadId) {
       state.threadTitle = tab.title;
       $('#chat-title').textContent = state.threadTitle || 'Session';
+      state.turnActive = !!tab.lastTurnActive;
+      updateComposer();
+      scheduleRenderChat();
       renderCtxBodySoon();
     }
   }
@@ -427,7 +679,16 @@ function retryAllStale() {
     }
   }
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) retryAllStale(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  retryAllStale();
+  const tab = activeTab();
+  if (tab?.unread && tabIsViewed(tab)) {
+    markTabViewed(tab);
+    persistTabs();
+    renderStrip();
+  }
+});
 window.addEventListener('online', retryAllStale);
 
 // --- composer chrome ---
@@ -477,7 +738,7 @@ async function boot() {
     if (deviceId) {
       const key = tabKeyFor(deviceId, history.state.threadId);
       if (!state.tabs.some((t) => t.key === key)) {
-        state.tabs.push({ key, deviceId, threadId: history.state.threadId, title: history.state.title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' });
+        state.tabs.push({ key, deviceId, threadId: history.state.threadId, title: history.state.title || 'Session', ephemeral: false, lastTurnActive: false, unread: 0, turnStartedAt: null, lastActivityAt: Date.now(), lastActivityTail: '', draft: '' });
       }
       state.active = key;
       state.screen = 'session';
@@ -714,6 +975,51 @@ function showHome() {
 
 // --- workspace strip ---
 let hiddenTabs = [];
+let sessionRail = null;
+
+function renderSessionRail() {
+  if (!sessionRail) {
+    sessionRail = createSessionRail({
+      mount: $('#sessionview'),
+      getStatus: tabStatus,
+      getMachine: (tab) => deviceLabel(state.devices.find((device) => device.id === tab.deviceId)),
+      getActivity: tabActivity,
+      getExcerpt: railExcerpt,
+      onPreviewStart: beginRailPreview,
+      onPreview: previewRailTab,
+      onCommit: (tab) => {
+        if (tab.key === state.active) {
+          endRailPreview(true);
+          markTabViewed(tab);
+          persistTabs();
+          renderStrip();
+          return;
+        }
+        endRailPreview(false);
+        selectTab(tab.key);
+      },
+      onCancel: () => endRailPreview(true),
+      onTap: (tab) => {
+        if (tab.key === state.active) return;
+        endRailPreview(false);
+        navigate(() => selectTab(tab.key));
+      },
+      onHome: () => {
+        endRailPreview(false);
+        navigate(() => {
+          showHome();
+          if (history.state?.threadId || history.state?.ephemeral) history.replaceState(null, '');
+        });
+      },
+      onTick: haptic,
+    });
+  }
+  sessionRail.update({
+    visible: state.mode === 'normal' && state.screen === 'session' && layout() === 'mobile' && state.mobilePane === 'session',
+    tabs: state.tabs,
+    activeKey: state.active,
+  });
+}
 
 function renderStrip() {
   const home = $('#home-btn');
@@ -729,6 +1035,10 @@ function renderStrip() {
   const newBtn = $('#tab-new');
   tabsEl.replaceChildren(newBtn);
   hiddenTabs = [];
+  renderSessionRail();
+  // On phones the edge rail is the open-session switcher. Keep only the
+  // existing New Session button in the top strip; wider layouts are unchanged.
+  if (layout() === 'mobile') return;
   if (!state.tabs.length || state.mode !== 'normal') return;
   // Tabs have a fixed flex basis; measure how many fit and spill the rest
   // into an overflow menu, always keeping the active tab visible. Reserve
@@ -760,8 +1070,10 @@ function renderStrip() {
 }
 
 function tabDot(tab) {
-  const dot = el('span', 'sdot' + (tab.lastTurnActive ? ' live' : ''));
+  const status = tabStatus(tab);
+  const dot = el('span', `sdot tab-${status}`);
   dot.dataset.s = connFor(tab.deviceId)?.status || 'connecting';
+  dot.dataset.tabStatus = status;
   return dot;
 }
 
@@ -776,6 +1088,7 @@ function tabEl(tab) {
   main.setAttribute('aria-selected', String(active));
   main.tabIndex = active || (state.screen === 'home' && state.tabs[0] === tab) ? 0 : -1;
   if (tab.ephemeral) main.append(icon('compose', 'icon tabicon'));
+  else main.append(tabDot(tab));
   main.append(el('span', 'wtab-title', tab.title || 'Session'));
   main.onclick = () => {
     if (state.screen === 'session' && state.active === tab.key) return;
@@ -817,7 +1130,18 @@ function openTabForThread(deviceId, threadId, title, opts = {}) {
   const key = tabKeyFor(deviceId, threadId);
   let tab = state.tabs.find((t) => t.key === key);
   if (!tab) {
-    tab = { key, deviceId, threadId, title: title || 'Session', ephemeral: false, lastTurnActive: false, draft: '' };
+    tab = {
+      key, deviceId, threadId, title: title || 'Session', ephemeral: false,
+      lastTurnActive: false, unread: 0, turnStartedAt: null, lastActivityAt: Date.now(), lastActivityTail: '', draft: '',
+    };
+    const conn = connFor(deviceId);
+    const snapshot = conn?.threads?.find((thread) => thread.id === threadId);
+    if (snapshot) {
+      applyThreadStatus(tab, snapshot.status || (snapshot.mockStatus ? { type: snapshot.mockStatus } : null), { detail: snapshot.mockActivity });
+      tab.lastActivityAt = tsVal(snapshot) || tab.lastActivityAt;
+      tab.lastActivityTail = snapshot.mockActivity || snapshot.preview || tab.lastActivityTail;
+      if (snapshot.mockUnread != null) tab.unread = Number(snapshot.mockUnread) || 0;
+    }
     state.tabs.push(tab);
   } else if (title) {
     tab.title = title;
@@ -829,6 +1153,7 @@ function selectTab(key, opts = {}) {
   const tab = state.tabs.find((t) => t.key === key);
   if (!tab) return;
   stashDraft();
+  markTabViewed(tab);
   const wasSession = state.screen === 'session';
   state.active = key;
   state.mobilePane = 'session';
@@ -908,6 +1233,10 @@ function newSessionTab() {
     title: 'New session',
     ephemeral: true,
     lastTurnActive: false,
+    unread: 0,
+    turnStartedAt: null,
+    lastActivityAt: Date.now(),
+    lastActivityTail: '',
     draft: '',
   };
   state.tabs.push(tab);
@@ -1005,8 +1334,10 @@ function renderSessionChrome() {
   renderMachinePill();
 
   const segbar = $('#segbar');
-  segbar.hidden = L !== 'mobile' || eph;
-  if (L !== 'mobile' || eph) state.mobilePane = 'session';
+  // Mobile is now a single full-bleed chat surface; the rail/Home replace both
+  // top chrome rows, so there is no segmented Context surface on phones.
+  segbar.hidden = true;
+  state.mobilePane = 'session';
   for (const b of segbar.querySelectorAll('[data-seg]')) {
     const sel = b.dataset.seg === state.mobilePane;
     b.setAttribute('aria-selected', String(sel));
@@ -1443,17 +1774,15 @@ function copyNodeId(dev) {
   write.then(() => toast('Node ID copied.'), () => toast(`Node ID: ${dev.id}`));
 }
 
-// Machine/thread details belong in the context pane whenever we're already
-// looking at a session on that machine; from Home they get a plain read-only
-// surface instead.
+// Machine/thread details use the context pane where that surface exists;
+// mobile's full-bleed single-pane layout falls back to the dialog below.
 function machineDetails(dev) {
   const tab = activeTab();
-  if (state.screen === 'session' && tab && !tab.ephemeral && tab.deviceId === dev.id) {
+  if (layout() !== 'mobile' && state.screen === 'session' && tab && !tab.ephemeral && tab.deviceId === dev.id) {
     closeSurface(false);
     state.ctxOpen = true;
     persistCtxOpen();
     state.ctxTab = 'details';
-    if (layout() === 'mobile') state.mobilePane = 'context';
     renderSessionChrome();
     renderStrip();
     $('#ctxtab-details')?.focus();
@@ -1630,10 +1959,36 @@ function renderSessions() {
     || (t.cwd || '').toLowerCase().includes(q)
     || deviceLabel(conn.dev).toLowerCase().includes(q);
   const merged = [];
+  const mergedKeys = new Set();
   for (const conn of conns) {
-    for (const t of conn.threads || []) if (matches(t, conn)) merged.push({ t, conn });
+    for (const t of conn.threads || []) {
+      if (!matches(t, conn)) continue;
+      merged.push({ t, conn });
+      mergedKeys.add(tabKeyFor(conn.dev.id, t.id));
+    }
   }
-  merged.sort((a, b) => tsVal(b.t) - tsVal(a.t));
+  // Restored tabs remain useful when their machine is offline and thread/list
+  // cannot hydrate Home. Surface their cached metadata so the rail's grid
+  // destination is still a complete way to access and manage open sessions.
+  for (const tab of state.tabs) {
+    if (tab.ephemeral || mergedKeys.has(tab.key)) continue;
+    const conn = connFor(tab.deviceId);
+    if (!conn || !conns.includes(conn)) continue;
+    const t = {
+      id: tab.threadId,
+      name: tab.title,
+      preview: tab.lastActivityTail,
+      updatedAt: tab.lastActivityAt,
+      cachedTab: true,
+    };
+    if (matches(t, conn)) merged.push({ t, conn });
+  }
+  const sessionPriority = ({ t, conn }) => {
+    const tab = state.tabs.find((candidate) => candidate.deviceId === conn.dev.id && candidate.threadId === t.id);
+    const status = tab ? tabStatus(tab) : threadSnapshotStatus(t, conn);
+    return { 'needs-you': 0, working: 1, error: 2, connecting: 3, idle: 4 }[status];
+  };
+  merged.sort((a, b) => sessionPriority(a) - sessionPriority(b) || tsVal(b.t) - tsVal(a.t));
 
   if (!merged.length) {
     const waiting = conns.some((c) => c.status === 'connecting' || (c.status === 'connected' && c.threads === null));
@@ -1673,7 +2028,13 @@ function renderSessions() {
   const dayAgo = Date.now() - 86_400_000;
   let lastGroup = null;
   for (const { t, conn } of merged) {
-    const group = tsVal(t) >= dayAgo ? 'Today' : 'Earlier';
+    const open = state.tabs.find((candidate) => candidate.deviceId === conn.dev.id && candidate.threadId === t.id);
+    const status = open ? tabStatus(open) : threadSnapshotStatus(t, conn);
+    const group = status === 'needs-you' ? 'Needs you'
+      : status === 'working' ? 'Working'
+      : status === 'error' ? 'Attention'
+      : status === 'connecting' ? 'Connecting'
+      : tsVal(t) >= dayAgo ? 'Today' : 'Earlier';
     if (group !== lastGroup) {
       list.append(el('span', 'section-title', group));
       lastGroup = group;
@@ -1685,26 +2046,50 @@ function renderSessions() {
 
 function sessionRow(t, conn) {
   const title = t.name || t.preview || 'Untitled session';
-  const row = el('button', 'session');
+  const row = el('div', 'session');
+  const openButton = el('button', 'session-open');
   const tab = state.tabs.find((x) => x.deviceId === conn.dev.id && x.threadId === t.id);
-  if (tab?.lastTurnActive) {
-    row.dataset.live = 'true';
-    const d = el('span', 'session-dot');
-    d.setAttribute('role', 'img');
-    d.setAttribute('aria-label', 'Turn running');
-    row.append(d);
-  }
+  const status = tab ? tabStatus(tab) : threadSnapshotStatus(t, conn);
+  row.dataset.tabStatus = status;
+  if (status === 'working') row.dataset.live = 'true';
+  const d = el('span', `session-dot status-${status}`);
+  d.setAttribute('role', 'img');
+  d.setAttribute('aria-label', status === 'needs-you' ? 'Needs your reply' : status);
+  openButton.append(d);
   const main = el('div', 'session-main');
   main.append(el('div', 'session-title', title));
   const subBits = [];
+  if (tab && status !== 'idle') subBits.push(tabActivity(tab));
+  else if (!tab && status !== 'idle') {
+    const snapshotActivity = status === 'error' ? (t.status?.message || conn.lastDetail || 'Machine unavailable')
+      : status === 'needs-you' ? (t.preview || 'Waiting for your reply')
+      : status === 'connecting' ? 'Connecting…'
+      : (t.preview || 'Working…');
+    subBits.push(snapshotActivity);
+  }
   if (state.devices.length > 1) subBits.push(deviceLabel(conn.dev));
   const dir = short(t.cwd);
   if (dir) subBits.push(dir);
-  main.append(el('div', 'session-sub', subBits.join(' · ') || '—'));
-  row.append(main);
+  main.append(el('div', 'session-sub', subBits.join(' · ') || (t.cachedTab ? 'Cached conversation' : '—')));
+  openButton.append(main);
+  if (tab?.unread) openButton.append(el('span', 'session-unread', String(tab.unread)));
   const when = rel(t.updatedAt || t.recencyAt);
-  if (when) row.append(el('span', 'session-side', when));
-  row.onclick = () => navigate(() => openTabForThread(conn.dev.id, t.id, title));
+  if (when) openButton.append(el('span', 'session-side', when));
+  openButton.onclick = () => navigate(() => openTabForThread(conn.dev.id, t.id, title));
+  row.append(openButton);
+  if (tab) {
+    const close = el('button', 'session-close');
+    close.type = 'button';
+    close.setAttribute('aria-label', `Close ${title}`);
+    close.innerHTML = ICONS.close;
+    hapticize(close);
+    close.onclick = () => {
+      haptic();
+      closeTab(tab.key);
+      renderSessions();
+    };
+    row.append(close);
+  }
   return row;
 }
 
@@ -1715,6 +2100,7 @@ const chat = {
   hintEl: null,
   workingEl: null,
   forceStick: false, // one-shot: scroll to bottom regardless of position (e.g. after send)
+  renderTurnActive: false,
 };
 
 // --- thread cache (stale-while-revalidate) ---
@@ -1764,6 +2150,135 @@ function purgeThreadCache(deviceId) {
   persistThreadCache();
 }
 
+// The scrub preview card shows the tail of each session's conversation from
+// the same sources the chat itself paints from: the live projection for the
+// active tab, the thread cache for everything else. Seeding a projection on
+// every scrub step would be wasteful, so cached excerpts are memoized against
+// the cache entry's timestamp. Tabs with no cached thread return no excerpt
+// and the card degrades to status/title/activity only.
+const railExcerptMemo = new Map(); // key -> { at, items }
+
+function flattenMarkdown(text) {
+  const flat = text
+    .replace(/```[\s\S]*?```/g, ' [code] ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/\*\*|\*|~~/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return truncate(flat, 200);
+}
+
+function excerptFromMessages(msgs) {
+  const items = [];
+  for (let i = msgs.length - 1; i >= 0 && items.length < 4; i--) {
+    const m = msgs[i];
+    if (m.kind !== 'text' || !m.text || (m.role !== 'user' && m.role !== 'assistant')) continue;
+    items.unshift({ role: m.role, text: flattenMarkdown(m.text) });
+  }
+  return items;
+}
+
+function railExcerpt(tab) {
+  if (tab.ephemeral) return [];
+  if (tab.key === state.active && state.projection) return excerptFromMessages(state.projection.toRenderList());
+  const entry = threadCache.get(tab.key);
+  if (!entry?.thread) return [];
+  const memo = railExcerptMemo.get(tab.key);
+  if (memo?.at === entry.at) return memo.items;
+  const projection = createProjection();
+  projection.seedFromThread(entry.thread);
+  const items = excerptFromMessages(projection.toRenderList());
+  railExcerptMemo.set(tab.key, { at: entry.at, items });
+  if (railExcerptMemo.size > THREAD_CACHE_MAX) {
+    for (const key of [...railExcerptMemo.keys()]) {
+      if (!threadCache.has(key)) railExcerptMemo.delete(key);
+    }
+  }
+  return items;
+}
+
+const railPreview = { active: false, originKey: null, shownKey: null, originRender: null };
+
+function animateRailPeek(direction = 0) {
+  const main = $('#main');
+  if (!main || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  main.getAnimations().forEach((animation) => animation.cancel());
+  main.animate([
+    { transform: `translateY(${direction * 22}px)`, opacity: 0.25 },
+    { transform: 'none', opacity: 1 },
+  ], { duration: 180, easing: 'cubic-bezier(.25,.8,.3,1)' });
+}
+
+function beginRailPreview() {
+  railPreview.active = true;
+  railPreview.originKey = state.active;
+  railPreview.shownKey = state.active;
+  const main = $('#main');
+  railPreview.originRender = {
+    children: [...main.childNodes],
+    scrollTop: main.scrollTop,
+    nodes: new Map(chat.nodes),
+    log: chat.log,
+    hintEl: chat.hintEl,
+    workingEl: chat.workingEl,
+    renderTurnActive: chat.renderTurnActive,
+  };
+}
+
+function previewRailTab(tab, direction = 0) {
+  if (!railPreview.active || !tab || tab.key === railPreview.shownKey) return;
+  railPreview.shownKey = tab.key;
+  $('#chat-title').textContent = tab.title || 'Session';
+  chat.nodes.clear();
+  chat.log = null;
+  if (tab.key === railPreview.originKey && state.projection) {
+    chat.forceStick = true;
+    renderChat({ projection: state.projection, turnActive: state.turnActive, preview: true });
+  } else {
+    const cached = !tab.ephemeral && threadCache.get(tab.key)?.thread;
+    if (cached) {
+      const projection = createProjection();
+      projection.seedFromThread(cached);
+      chat.forceStick = true;
+      renderChat({ projection, turnActive: !!tab.lastTurnActive, preview: true });
+    } else {
+      $('#main').replaceChildren(stateBox({ spinner: true, body: tab.ephemeral ? 'New session' : 'Conversation preview not cached yet' }));
+      $('#jump').hidden = true;
+    }
+  }
+  animateRailPeek(direction);
+}
+
+function endRailPreview(restoreOrigin) {
+  if (!railPreview.active) return;
+  const shouldRestore = restoreOrigin && !!railPreview.originRender;
+  const originRender = railPreview.originRender;
+  railPreview.active = false;
+  railPreview.shownKey = null;
+  railPreview.originKey = null;
+  railPreview.originRender = null;
+  if (!shouldRestore) return;
+  const tab = activeTab();
+  if (!tab) return;
+  $('#chat-title').textContent = state.threadTitle || tab.title || 'Session';
+  const main = $('#main');
+  main.replaceChildren(...originRender.children);
+  chat.nodes = originRender.nodes;
+  chat.log = originRender.log;
+  chat.hintEl = originRender.hintEl;
+  chat.workingEl = originRender.workingEl;
+  chat.renderTurnActive = originRender.renderTurnActive;
+  main.scrollTop = originRender.scrollTop;
+  // Every open allocates a projection before hydration. Preserve an offline
+  // spinner, but repaint if the read completed into cache while we previewed.
+  if (tab.ephemeral) renderEphemeral(tab);
+  else if (state.projection && (chat.log?.isConnected || threadCache.has(tab.key) || connFor(tab.deviceId)?.status === 'connected')) renderChat();
+  else { updateComposer(); updateJump(); }
+  animateRailPeek(0);
+}
 async function openThread(deviceId, id, title) {
   state.threadDeviceId = deviceId;
   state.threadId = id;
@@ -1807,6 +2322,7 @@ async function openThread(deviceId, id, title) {
   // independent requests — run them concurrently. A freshly started thread
   // isn't materialized until its first message, so thread/read can fail —
   // that's fine, we just start with an empty log.
+  const lifecycleBeforeRead = tab?.lifecycleRevision || 0;
   const [, res] = await Promise.all([
     conn.rpc.request('thread/resume', { threadId: id }).catch(() => {}),
     conn.rpc.request('thread/read', { threadId: id, includeTurns: true }).catch(() => null),
@@ -1819,6 +2335,19 @@ async function openThread(deviceId, id, title) {
     const fresh = createProjection();
     fresh.seedFromThread(res.thread);
     state.projection = fresh;
+    const currentTab = activeTab();
+    if (res.thread.status && currentTab?.key === cacheKey && (currentTab.lifecycleRevision || 0) === lifecycleBeforeRead) {
+      const type = res.thread.status.type;
+      // Some bridges return a static idle snapshot from thread/read even while
+      // a resumed turn is live. Only use it when we do not already know better.
+      if (!(type === 'idle' && currentTab.lastTurnActive)) {
+        applyThreadStatus(currentTab, res.thread.status);
+        if (currentTab.lastTurnActive && res.thread.status.type === 'active') touchTabLifecycle(currentTab, conn.attempt);
+        state.turnActive = !!currentTab.lastTurnActive;
+        persistTabs();
+        renderStrip();
+      }
+    }
   }
   renderChat();
 }
@@ -1888,7 +2417,7 @@ function reasoningNode() {
     el: root,
     kind: 'reasoning',
     update(m) {
-      const live = !!m.streamed && state.turnActive;
+      const live = !!m.streamed && chat.renderTurnActive;
       root.dataset.live = String(live);
       if (m.text !== last) {
         last = m.text;
@@ -1970,7 +2499,10 @@ function ensureLog() {
   return chat.log;
 }
 
-function renderChat() {
+function renderChat({ projection = state.projection, turnActive = state.turnActive, preview = false } = {}) {
+  if (railPreview.active && !preview) return;
+  if (!projection) return;
+  chat.renderTurnActive = turnActive;
   const main = $('#main');
   const hadLog = !!chat.log?.isConnected;
   // Only stick to the bottom if the user hasn't scrolled up to read history.
@@ -1978,7 +2510,7 @@ function renderChat() {
   chat.forceStick = false;
 
   const log = ensureLog();
-  const msgs = state.projection.toRenderList();
+  const msgs = projection.toRenderList();
 
   const seen = new Set();
   let index = 0;
@@ -1998,16 +2530,17 @@ function renderChat() {
   // trailing chrome: empty hint / working indicator
   chat.hintEl.remove();
   chat.workingEl.remove();
-  if (!msgs.length && !state.turnActive) log.append(chat.hintEl);
-  if (state.turnActive) log.append(chat.workingEl);
+  if (!msgs.length && !turnActive) log.append(chat.hintEl);
+  if (turnActive) log.append(chat.workingEl);
 
-  updateComposer();
+  if (!preview) updateComposer();
   if (stick) {
     main.scrollTop = main.scrollHeight;
     requestAnimationFrame(() => { main.scrollTop = main.scrollHeight; });
   }
-  updateJump();
-  if (state.screen === 'session' && !$('#ctxpane').hidden) renderCtxBodySoon();
+  if (preview) $('#jump').hidden = true;
+  else updateJump();
+  if (!preview && state.screen === 'session' && !$('#ctxpane').hidden) renderCtxBodySoon();
 }
 
 let renderPending = false;
@@ -2016,7 +2549,10 @@ function scheduleRenderChat() {
   renderPending = true;
   requestAnimationFrame(() => {
     renderPending = false;
-    if (state.threadId) renderChat();
+    if (!state.threadId) return;
+    if (railPreview.active) {
+      if (railPreview.shownKey === railPreview.originKey) renderChat({ projection: state.projection, turnActive: state.turnActive, preview: true });
+    } else renderChat();
   });
 }
 
@@ -2030,26 +2566,69 @@ function updateJump() {
 
 function onNotify(conn, msg) {
   const tid = msg.params?.threadId;
-  // Turn lifecycle for any open tab keeps its live dot honest, even when
-  // that tab isn't the one on screen.
-  if (tid && ['turn/started', 'turn/completed', 'turn/failed', 'thread/status/changed'].includes(msg.method)) {
-    const tab = state.tabs.find((t) => t.deviceId === conn.dev.id && t.threadId === tid);
-    if (tab) {
-      const st = msg.params?.status?.type;
-      if (msg.method === 'turn/started' || st === 'active' || st === 'busy') tab.lastTurnActive = true;
-      if (msg.method === 'turn/completed' || msg.method === 'turn/failed' || st === 'idle') tab.lastTurnActive = false;
+  const tab = tid ? state.tabs.find((candidate) => candidate.deviceId === conn.dev.id && candidate.threadId === tid) : null;
+  let statusChanged = false;
+
+  if (tab) {
+    const activityChanged = recordTabActivity(tab, msg);
+    if (msg.method === 'turn/started') {
+      if (!tab.lastTurnActive) tab.turnStartedAt = Date.now();
+      tab.waitingForUser = false;
+      tab.lastTurnActive = true;
+      tab.turnError = '';
+      tab.unreadForTurn = false;
+      tab.activeTurnId = msg.params?.turn?.id || msg.params?.turnId || null;
+      tab.terminalWithoutId = false;
+      tab.lastActivityAt = Date.now();
+      statusChanged = true;
+    } else if (msg.method === 'thread/status/changed') {
+      const status = msg.params?.status;
+      const wasActive = tab.lastTurnActive;
+      if (status?.type === 'idle' && wasActive) finishTabTurn(tab);
+      else applyThreadStatus(tab, status, { markUnread: true, detail: msg.params?.message });
+      tab.lastActivityAt = Date.now();
+      statusChanged = true;
+    }
+    if (msg.method === 'item/completed' && msg.params?.item?.type === 'agentMessage' && !tabIsViewed(tab) && !tab.unreadForTurn) {
+      tab.unread = Math.min(99, (tab.unread || 0) + 1);
+      tab.unreadForTurn = true;
+      statusChanged = true;
+    }
+    if (msg.method === 'turn/completed') {
+      const failed = msg.params?.turn?.status === 'failed';
+      const detail = msg.params?.turn?.error?.message || 'Turn failed';
+      finishTabTurn(tab, { failed, detail: failed ? detail : '', turnId: msg.params?.turn?.id || null });
+      statusChanged = true;
+    } else if (msg.method === 'turn/failed') {
+      const error = msg.params?.error;
+      const detail = typeof error === 'string' ? error : error?.message || msg.params?.message || 'Turn failed';
+      finishTabTurn(tab, { failed: true, detail, turnId: msg.params?.turnId || null });
+      statusChanged = true;
+    }
+    if (statusChanged) {
+      touchTabLifecycle(tab, conn.attempt);
+      persistTabs();
       renderStrip();
       if (state.screen === 'home') renderSessions();
     }
+    else if (activityChanged) {
+      touchTabLifecycle(tab, conn.attempt);
+      scheduleTabActivityFlush();
+    }
   }
+
   if (conn.dev.id !== state.threadDeviceId) return; // event from a machine we're not looking at
   if (tid && tid !== state.threadId) return;
   if (msg.method === 'turn/started') { state.turnActive = true; scheduleRenderChat(); return; }
-  if (msg.method === 'turn/completed' || msg.method === 'turn/failed') { state.turnActive = false; scheduleRenderChat(); return; }
+  if (msg.method === 'turn/completed' || msg.method === 'turn/failed') {
+    state.turnActive = tab ? !!tab.lastTurnActive : false;
+    scheduleRenderChat();
+    return;
+  }
   if (msg.method === 'thread/status/changed') {
-    const status = msg.params?.status?.type;
-    if (status === 'active' || status === 'busy') state.turnActive = true;
-    if (status === 'idle') state.turnActive = false;
+    const status = msg.params?.status;
+    if (tab) state.turnActive = !!tab.lastTurnActive;
+    else state.turnActive = status?.type === 'active';
     scheduleRenderChat();
     return;
   }
@@ -2122,17 +2701,39 @@ async function send() {
   autoResize();
   const localMessageId = state.projection?.addLocalUserMessage(text);
   state.turnActive = true;
-  if (tab) tab.lastTurnActive = true;
+  if (tab) {
+    tab.lastTurnActive = true;
+    tab.waitingForUser = false;
+    tab.turnStartedAt = Date.now();
+    tab.lastActivityAt = Date.now();
+    tab.lastActivityTail = 'Starting turn…';
+    tab.turnError = '';
+    tab.unreadForTurn = false;
+    tab.activeTurnId = null;
+    tab.terminalWithoutId = false;
+    touchTabLifecycle(tab, conn.attempt);
+    persistTabs();
+    renderStrip();
+  }
   chat.forceStick = true;
   scheduleRenderChat();
   try {
-    await conn.rpc.request('turn/start', {
+    const res = await conn.rpc.request('turn/start', {
       threadId: state.threadId,
       input: [{ type: 'text', text, text_elements: [] }],
     });
+    if (tab?.lastTurnActive && !tab.activeTurnId && res?.turn?.id) tab.activeTurnId = res.turn.id;
   } catch (e) {
     state.turnActive = false;
-    if (tab) tab.lastTurnActive = false;
+    if (tab) {
+      tab.lastTurnActive = false;
+      tab.turnStartedAt = null;
+      tab.turnError = e?.message || String(e);
+      tab.lastActivityAt = Date.now();
+      touchTabLifecycle(tab, conn.attempt);
+      persistTabs();
+      renderStrip();
+    }
     if (localMessageId) state.projection?.removeLocalMessage(localMessageId);
     if (!box.value) { box.value = text; autoResize(); } // let the user retry
     toast(`Send failed: ${e?.message || e}`);
@@ -2228,7 +2829,13 @@ for (const b of document.querySelectorAll('[data-ctxtab]')) {
 for (const b of document.querySelectorAll('[data-seg]')) {
   b.onclick = () => {
     state.mobilePane = b.dataset.seg;
+    const tab = activeTab();
+    if (tab?.unread && tabIsViewed(tab)) {
+      markTabViewed(tab);
+      persistTabs();
+    }
     renderSessionChrome();
+    renderStrip();
   };
 }
 
