@@ -775,7 +775,7 @@ function tabEl(tab) {
   main.setAttribute('role', 'tab');
   main.setAttribute('aria-selected', String(active));
   main.tabIndex = active || (state.screen === 'home' && state.tabs[0] === tab) ? 0 : -1;
-  main.append(tab.ephemeral ? icon('compose', 'icon tabicon') : tabDot(tab));
+  if (tab.ephemeral) main.append(icon('compose', 'icon tabicon'));
   main.append(el('span', 'wtab-title', tab.title || 'Session'));
   main.onclick = () => {
     if (state.screen === 'session' && state.active === tab.key) return;
@@ -796,7 +796,7 @@ function openTabOverflow(anchor) {
     for (const tab of hiddenTabs) {
       const item = el('button', 'menu-item');
       item.setAttribute('role', 'menuitem');
-      item.append(tab.ephemeral ? icon('compose', 'icon tabicon') : tabDot(tab));
+      if (tab.ephemeral) item.append(icon('compose', 'icon tabicon'));
       item.append(el('span', 'mi-title', tab.title || 'Session'));
       const dev = state.devices.find((d) => d.id === tab.deviceId);
       if (dev) item.append(el('span', 'mi-side', deviceLabel(dev)));
@@ -984,20 +984,11 @@ function openMachineSelect(tab, anchor) {
   }, { anchor, label: 'Choose machine for this session' });
 }
 
-// --- session chrome (title, machine pill, panes, breakpoints) ---
+// --- session chrome (title, panes, breakpoints) ---
 function renderMachinePill() {
-  const pill = $('#chat-machine');
-  const tab = activeTab();
-  const dev = state.devices.find((d) => d.id === tab?.deviceId);
-  // Ephemeral sessions carry the machine selector in the composer instead.
-  if (!dev || tab?.ephemeral) { pill.hidden = true; return; }
-  const conn = connFor(dev.id);
-  const status = conn?.status || 'connecting';
-  pill.hidden = false;
-  pill.dataset.state = status;
-  pill.textContent = deviceLabel(dev) + (status === 'connected' && conn?.agent ? ` · ${conn.agent}` : '');
-  pill.setAttribute('aria-label', `Machine ${deviceLabel(dev)}: ${status}. Machine actions`);
-  pill.onclick = () => openMachineActions(dev, pill);
+  // The active machine is already available from context/actions; keep the
+  // session header clean by not showing the machine/agent pill here.
+  $('#chat-machine').hidden = true;
 }
 
 function renderSessionChrome() {

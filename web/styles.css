@@ -512,17 +512,7 @@ body.unpaired .wstrip { display: none; }
 .sessionview { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .workspace { flex: 1 1 auto; display: flex; min-height: 0; position: relative; }
 .chatpane { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
-.chatpane-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 16px 7px;
-  min-height: 44px;
-  max-width: 744px;
-  margin: 0 auto;
-  width: 100%;
-  flex: 0 0 auto;
-}
+.chatpane-head { display: none; }
 .chatpane-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -841,6 +831,9 @@ body.unpaired .wstrip { display: none; }
   width: 100%;
   max-width: 744px;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -849,12 +842,10 @@ body.unpaired .wstrip { display: none; }
   transition: border-color 0.12s ease;
 }
 .composer-card:focus-within { border-color: var(--border-strong); }
-.composer-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
+.composer-row { display: contents; }
 #input {
+  grid-column: 1 / -1;
+  grid-row: 1;
   flex: 1 1 auto;
   resize: none;
   background: none;
@@ -864,7 +855,7 @@ body.unpaired .wstrip { display: none; }
   padding: 8px 10px;
   font: inherit;
   line-height: 1.4;
-  min-height: 38px;
+  min-height: 72px;
   max-height: 144px;
   font-size: 16px; /* >= 16px prevents iOS zoom-on-focus */
 }
@@ -885,7 +876,14 @@ body.unpaired .wstrip { display: none; }
 }
 .icon-btn svg { width: 17px; height: 17px; }
 .icon-btn:active { transform: scale(0.92); }
+#stop, #send {
+  grid-row: 2;
+  justify-self: end;
+  align-self: center;
+}
+#stop { grid-column: 2; }
 #send {
+  grid-column: 3;
   background: var(--accent-strong);
   border-color: var(--accent-strong);
   color: var(--accent-ink);
@@ -927,19 +925,11 @@ body.unpaired .wstrip { display: none; }
   color: var(--text-faint);
 }
 .chatpane[data-eph="true"] #composer { padding-top: 0; }
-/* Same card, two-level composition: full-width textarea above a control row
-   holding the machine selector (left) and send (right). */
+/* New sessions use the narrower, more elevated version of the shared
+   two-level composer. */
 .chatpane[data-eph="true"] .composer-card {
   max-width: 620px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
-}
-.chatpane[data-eph="true"] .composer-row { display: contents; }
-.chatpane[data-eph="true"] #input {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  min-height: 72px;
 }
 .chatpane[data-eph="true"] .ctools {
   display: flex;
@@ -947,12 +937,6 @@ body.unpaired .wstrip { display: none; }
   min-width: 0;
   grid-column: 1;
   grid-row: 2;
-}
-.chatpane[data-eph="true"] #send {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: end;
-  align-self: center;
 }
 .machine-btn {
   display: inline-flex;
