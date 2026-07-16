@@ -73,29 +73,21 @@ fi
 strip_v() { printf '%s' "$1" | sed 's/^v//'; }
 
 step "resolving latest release"
-api="https://api.github.com/repos/$REPO/releases/latest"
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-  body="$(curl -sSL -H "Authorization: Bearer $GITHUB_TOKEN" "$api" 2>/dev/null || true)"
-else
-  body="$(curl -sSL "$api" 2>/dev/null || true)"
+latest="https://github.com/$REPO/releases/latest"
+if ! release_url="$(curl -sSL -o /dev/null -w '%{url_effective}' "$latest")"; then
+  fail "could not reach GitHub" \
+    "check your network connection, then retry" \
+    "releases: https://github.com/$REPO/releases"
 fi
-tag="$(printf '%s\n' "$body" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+release_prefix="https://github.com/$REPO/releases/tag/"
+case "$release_url" in
+  "$release_prefix"*) tag="${release_url#"$release_prefix"}" ;;
+  *) tag="" ;;
+esac
+tag="${tag%%[?#]*}"
 if [ -z "$tag" ]; then
-  case "$body" in
-    *"rate limit"*)
-      fail "GitHub API rate limit reached" \
-        "this is temporary — retry in a few minutes, or set GITHUB_TOKEN to authenticate"
-      ;;
-    "")
-      fail "could not reach the GitHub API" \
-        "check your network connection, then retry" \
-        "releases: https://github.com/$REPO/releases"
-      ;;
-    *)
-      fail "could not find the latest release for $REPO" \
-        "check https://github.com/$REPO/releases"
-      ;;
-  esac
+  fail "could not resolve the latest release for $REPO" \
+    "check https://github.com/$REPO/releases"
 fi
 if [ -z "$have" ]; then
   rel_note="(fresh install)"
