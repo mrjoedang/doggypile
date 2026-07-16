@@ -1657,7 +1657,11 @@ html.vt .view { animation: none; }
 
 /* ---------- haptic overlays ---------- */
 /* Invisible native switch stretched over a button (iOS): the physical tap
-   toggles it, which is the only thing iOS fires its switch haptic for. */
+   toggles it, which is the only thing iOS fires its switch haptic for.
+   The host button must be the overlay's containing block. Enforced here
+   because buttons are hapticized while still detached, where JS cannot read
+   computed position; :where() lets any explicitly positioned host win. */
+:where(:has(> .hswitch)) { position: relative; }
 .hswitch {
   position: absolute;
   inset: 0;

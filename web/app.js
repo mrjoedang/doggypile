@@ -295,7 +295,6 @@ function hapticize(btn) {
   sw.className = 'hswitch';
   sw.tabIndex = -1;
   sw.setAttribute('aria-hidden', 'true');
-  if (getComputedStyle(btn).position === 'static') btn.style.position = 'relative';
   btn.append(sw);
 }
 
