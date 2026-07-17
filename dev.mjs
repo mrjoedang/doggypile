@@ -24,6 +24,44 @@ if (modes.length !== 1) {
 }
 const MODE = modes[0].slice(2);
 
+const USE_COLOR = Boolean(process.stdout.isTTY)
+  && !('NO_COLOR' in process.env)
+  && process.env.FORCE_COLOR !== '0';
+const style = (code, text) => USE_COLOR ? `\x1b[${code}m${text}\x1b[0m` : text;
+const bold = (text) => style('1', text);
+const dim = (text) => style('2', text);
+const cyan = (text) => style('36', text);
+const green = (text) => style('32', text);
+const yellow = (text) => style('33', text);
+
+function printReady(serverUrl, selectedPort) {
+  const browserStatus = MODE === 'mock' ? 'opened with mock data' : 'opened and paired';
+  const daemonStatus = MODE === 'mock'
+    ? 'not needed'
+    : MODE === 'web'
+      ? 'installed binary on PATH · build skipped'
+      : 'built from this checkout';
+  const rows = [
+    [cyan('➜'), 'Server', cyan(MODE === 'mock' ? `${serverUrl}/?mock` : serverUrl)],
+    [green('✓'), 'Browser', browserStatus],
+    [MODE === 'mock' ? dim('—') : green('✓'), 'Daemon', daemonStatus],
+    [green('↻'), 'Reload', 'watching web/'],
+  ];
+  if (selectedPort !== PORT) {
+    rows.push([yellow('!'), 'Port', `${PORT} was busy · using ${selectedPort}`]);
+  }
+
+  console.log(`\n  ${bold('doggypile')} ${dim(`· ${MODE} development`)}\n`);
+  for (const [icon, label, value] of rows) {
+    console.log(`  ${icon}  ${dim(label.padEnd(9))} ${value}`);
+  }
+  console.log(`\n  ${bold('Ctrl-C')} stops the web server.`);
+  if (MODE !== 'mock') {
+    console.log(`  Daemon keeps running · ${cyan('bun run stop')} stops it.`);
+  }
+  console.log();
+}
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -146,22 +184,12 @@ for (;;) {
     port++;
   }
 }
-if (port !== PORT) console.log(`doggypile: port ${PORT} busy (another bun dev, or \`doggypile web\`?) — using ${port}`);
 
 // 3. open the right local URL for this mode.
 const url = `http://${lanIp()}:${port}`;
 const browserUrl = MODE === 'mock' ? `${url}/?mock` : pairUrl(MODE === 'full' ? BIN : 'doggypile', url);
 openBrowser(browserUrl);
 
-console.log(`\n  PWA served at ${url}`);
-if (MODE === 'mock') {
-  console.log(`  Opened mock UI: ${browserUrl}`);
-  console.log('  Skipped daemon build/restart/pairing.');
-} else {
-  console.log(`  Opened paired UI: ${browserUrl}`);
-  console.log(MODE === 'web' ? '  Paired via installed `doggypile` on PATH; skipped local daemon build.' : '  Built and paired via this checkout\'s debug daemon.');
-}
-console.log('  Edits under web/ live-reload connected browsers.');
-console.log(MODE === 'mock' ? '  Ctrl-C stops serving.\n' : '  Ctrl-C stops serving. The daemon keeps running; `bun run stop` to stop it.\n');
+printReady(url, port);
 
 process.on('SIGINT', () => { server.close(); process.exit(0); });

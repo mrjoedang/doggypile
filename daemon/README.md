@@ -46,7 +46,7 @@ The command surface is the same for `kittylitter` packaged installs and `doggypi
 | `doggypile serve` | Run the daemon in the foreground (what `install` autostarts). |
 | `doggypile install` / `uninstall` | Per-user autostart, idempotent. |
 | `doggypile status [--json]` | Pid, node id, token fingerprint, uptime, agent availability. Falls back to a file-only readout if the daemon isn't running. |
-| `doggypile pair [--qr]` | Print the stable pair payload, optionally with an ASCII QR code. |
+| `doggypile pair [--qr] [--no-qr] [--raw]` | Show a pairing QR in a terminal, print a URL when redirected, or emit the raw payload JSON. |
 | `doggypile rotate` | Mint a fresh token. Node id is preserved; the running daemon picks up the new token immediately. |
 | `doggypile reload` | Re-read `host.toml` and swap agent config without restarting. |
 | `doggypile agents list` | List configured agents and their availability. |
@@ -69,7 +69,7 @@ The daemon talks to the CLI over a Unix domain socket on macOS/Linux and a per-u
 
 ## Pair payload
 
-`doggypile pair` prints:
+In an interactive terminal, `doggypile pair` displays a pairing QR without dumping the credential-bearing URL. Redirected output and `--no-qr` print only the URL; `--qr` forces QR rendering when redirected. `doggypile pair --raw` prints the underlying payload:
 
 ```json
 {

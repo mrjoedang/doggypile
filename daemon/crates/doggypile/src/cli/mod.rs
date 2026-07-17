@@ -14,6 +14,7 @@ pub mod agents;
 pub mod logs;
 pub mod onboarding;
 pub mod pair;
+pub(crate) mod presentation;
 pub mod probe;
 pub mod reload;
 pub mod rotate;

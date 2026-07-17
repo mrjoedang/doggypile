@@ -133,7 +133,7 @@ enum Command {
     /// Print the running daemon's status (falls back to file-only when the
     /// daemon isn't running).
     Status(cli::status::StatusArgs),
-    /// Print the stable pair payload, optionally with an ASCII QR code.
+    /// Display a pairing QR, or print the pairing URL/JSON for automation.
     Pair(cli::pair::PairArgs),
     /// Mint a fresh token. Node id is preserved.
     Rotate,
