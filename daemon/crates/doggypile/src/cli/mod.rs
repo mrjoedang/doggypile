@@ -169,7 +169,8 @@ pub async fn restart_daemon() -> anyhow::Result<()> {
         // user's launchd/systemd state is wedged we still want to spawn the
         // new daemon ourselves below, not bail.
         match crate::service::install() {
-            Ok(()) => true,
+            Ok(crate::service::InstallOutcome::Installed) => true,
+            Ok(crate::service::InstallOutcome::SessionOnly) => false,
             Err(error) => {
                 eprintln!(
                     "warning: re-installing autostart entry failed: {error:#}; falling back to manual respawn"

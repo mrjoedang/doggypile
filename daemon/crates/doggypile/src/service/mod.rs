@@ -25,13 +25,78 @@ pub fn service_label() -> &'static str {
 /// Subcommand the autostart entry invokes on the `doggypile` binary.
 pub const DAEMON_SUBCOMMAND: &str = "serve";
 
-/// Install the autostart entry. Idempotent — calling twice is a no-op after
-/// the file is on disk; the service-manager invocation is re-run so the
-/// daemon picks up a binary path change after `cargo install`.
-pub fn install() -> anyhow::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstallOutcome {
+    Installed,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    SessionOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LinuxInstallMode {
+    Systemd,
+    XdgAutostart,
+    SessionOnly,
+    Unsupported,
+}
+
+pub(super) fn linux_install_mode(
+    systemd_available: bool,
+    xdg_session: bool,
+    containerized: bool,
+) -> LinuxInstallMode {
+    if systemd_available {
+        LinuxInstallMode::Systemd
+    } else if xdg_session {
+        LinuxInstallMode::XdgAutostart
+    } else if containerized {
+        LinuxInstallMode::SessionOnly
+    } else {
+        LinuxInstallMode::Unsupported
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn container_without_user_init_uses_session_only_mode() {
+        assert_eq!(
+            linux_install_mode(false, false, true),
+            LinuxInstallMode::SessionOnly
+        );
+    }
+
+    #[test]
+    fn real_init_wins_inside_container() {
+        assert_eq!(
+            linux_install_mode(true, false, true),
+            LinuxInstallMode::Systemd
+        );
+        assert_eq!(
+            linux_install_mode(false, true, true),
+            LinuxInstallMode::XdgAutostart
+        );
+    }
+
+    #[test]
+    fn bare_metal_without_supported_init_remains_unsupported() {
+        assert_eq!(
+            linux_install_mode(false, false, false),
+            LinuxInstallMode::Unsupported
+        );
+    }
+}
+
+/// Install persistent autostart when the OS exposes a supported user init.
+/// Init-less containers return [`InstallOutcome::SessionOnly`]; callers must
+/// start the daemon now and let the container lifecycle restart it later.
+pub fn install() -> anyhow::Result<InstallOutcome> {
     #[cfg(target_os = "macos")]
     {
-        macos::install()
+        macos::install()?;
+        Ok(InstallOutcome::Installed)
     }
     #[cfg(target_os = "linux")]
     {
@@ -39,7 +104,8 @@ pub fn install() -> anyhow::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        windows::install()
+        windows::install()?;
+        Ok(InstallOutcome::Installed)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {

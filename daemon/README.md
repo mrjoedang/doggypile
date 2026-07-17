@@ -24,6 +24,7 @@ kittylitter pair --qr       # phone-side QR
 Use `doggypile` instead of `kittylitter` when running a source build from this repo.
 
 The `install` command registers a launchd user agent on macOS, a systemd `--user` unit on Linux (with `.desktop` autostart fallback), or a Startup-folder shortcut on Windows. None of them require sudo.
+Init-less containers are supported in session-only mode: Doggypile skips unavailable OS autostart and starts detached for the current container session. Add `doggypile restart` to the DevPod/devcontainer post-start hook for container restarts.
 
 The daemon spawns external coding-agent CLIs on demand — install whichever ones you'll use:
 

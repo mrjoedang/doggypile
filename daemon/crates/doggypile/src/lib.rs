@@ -167,8 +167,15 @@ async fn async_main() -> anyhow::Result<()> {
         Some(Command::Serve) => daemon::run().await,
         Some(Command::Install) => {
             init_cli_logging();
-            service::install()?;
-            println!("installed.");
+            match service::install()? {
+                service::InstallOutcome::Installed => println!("installed."),
+                service::InstallOutcome::SessionOnly => {
+                    cli::ensure_current_daemon().await?;
+                    let name = binary_name();
+                    println!("container has no user init; daemon started for this session.");
+                    println!("add `{name} restart` to the container post-start hook for restarts.");
+                }
+            }
             Ok(())
         }
         Some(Command::Uninstall) => {

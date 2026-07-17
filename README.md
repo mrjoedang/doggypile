@@ -28,6 +28,7 @@ doggypile uninstall  # remove the login autostart and stop the supervised daemon
 ```
 
 The daemon stays in the background and comes back on its own after crashes and reboots. To actually get rid of it, use `doggypile uninstall`.
+Init-less containers (including DevPod Docker workspaces) run in session-only mode. Add `doggypile restart` to the container’s post-start hook so the daemon returns after container restarts.
 
 Pairing URLs are one-time use. Anyone who pairs gets code execution through the local agent, so only share pairing links with devices you trust.
 

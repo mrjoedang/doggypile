@@ -20,12 +20,21 @@ use crate::service;
 pub async fn run() -> anyhow::Result<()> {
     let name = crate::binary_name();
 
-    if !service::is_installed().unwrap_or(false) {
-        println!("First run — installing {name} as a user-level autostart...");
-        if let Err(error) = service::install() {
-            eprintln!("warning: installing autostart failed: {error:#}; continuing without it");
+    let session_only = if !service::is_installed().unwrap_or(false) {
+        match service::install() {
+            Ok(service::InstallOutcome::Installed) => {
+                println!("Installed {name} as a user-level autostart.");
+                false
+            }
+            Ok(service::InstallOutcome::SessionOnly) => true,
+            Err(error) => {
+                eprintln!("warning: installing autostart failed: {error:#}; continuing without it");
+                false
+            }
         }
-    }
+    } else {
+        false
+    };
 
     // ensure_current_daemon does whatever it takes to leave a
     // v<this binary> daemon listening on the IPC socket: spawns one if
@@ -33,6 +42,12 @@ pub async fn run() -> anyhow::Result<()> {
     // spawn if the supervisor is wedged. Same path `pair`/`rotate` use,
     // so onboarding stays honest about runtime state.
     cli::ensure_current_daemon().await?;
+    if session_only {
+        eprintln!(
+            "Container has no user init; running {name} for this session.\n\
+             Add `{name} restart` to the container post-start hook for restarts."
+        );
+    }
 
     cli::pair::run(cli::pair::PairArgs {
         qr: true,

@@ -9,46 +9,52 @@ use std::os::unix::fs::FileTypeExt;
 use anyhow::{Context, anyhow};
 
 use crate::paths;
-use crate::service::DAEMON_SUBCOMMAND;
+use crate::service::{DAEMON_SUBCOMMAND, InstallOutcome, LinuxInstallMode, linux_install_mode};
 
-pub(super) fn install() -> anyhow::Result<()> {
+pub(super) fn install() -> anyhow::Result<InstallOutcome> {
     let exe = std::env::current_exe().context("resolving current executable")?;
     let inherit_path = std::env::var("PATH").ok();
     let inherit_shell = std::env::var("SHELL").ok();
+    let mode = linux_install_mode(
+        systemd_user_session_available(),
+        has_xdg_session(),
+        is_containerized(),
+    );
 
-    if systemd_user_session_available() {
-        let unit_path = paths::systemd_unit_path()?;
-        let unit_name = systemd_unit_name(&unit_path)?;
-        write_systemd_unit(
-            &unit_path,
-            &exe,
-            inherit_path.as_deref(),
-            inherit_shell.as_deref(),
-        )?;
-        run_systemctl(&["--user", "daemon-reload"])?;
-        run_systemctl(&["--user", "enable", "--now", &unit_name])?;
-        eprintln!(
-            "Hint: to start the daemon at boot rather than at login, run:\n  \
-             loginctl enable-linger $USER\n\
-             (this needs sudo and is intentionally not run by `doggypile install`)"
-        );
-        return Ok(());
+    match mode {
+        LinuxInstallMode::Systemd => {
+            let unit_path = paths::systemd_unit_path()?;
+            let unit_name = systemd_unit_name(&unit_path)?;
+            write_systemd_unit(
+                &unit_path,
+                &exe,
+                inherit_path.as_deref(),
+                inherit_shell.as_deref(),
+            )?;
+            run_systemctl(&["--user", "daemon-reload"])?;
+            run_systemctl(&["--user", "enable", "--now", &unit_name])?;
+            eprintln!(
+                "Hint: to start the daemon at boot rather than at login, run:\n  \
+                 loginctl enable-linger $USER\n\
+                 (this needs sudo and is intentionally not run by `doggypile install`)"
+            );
+            Ok(InstallOutcome::Installed)
+        }
+        LinuxInstallMode::XdgAutostart => {
+            let desktop_path = paths::xdg_autostart_path()?;
+            write_autostart_desktop(&desktop_path, &exe)?;
+            eprintln!(
+                "Installed XDG autostart entry at {}; the daemon will launch at next graphical login.",
+                desktop_path.display()
+            );
+            Ok(InstallOutcome::Installed)
+        }
+        LinuxInstallMode::SessionOnly => Ok(InstallOutcome::SessionOnly),
+        LinuxInstallMode::Unsupported => Err(anyhow!(
+            "Linux init not supported (no reachable `systemd --user` session, no XDG graphical session). \
+             Run `doggypile serve` manually under your init."
+        )),
     }
-
-    if has_xdg_session() {
-        let desktop_path = paths::xdg_autostart_path()?;
-        write_autostart_desktop(&desktop_path, &exe)?;
-        eprintln!(
-            "Installed XDG autostart entry at {}; the daemon will launch at next graphical login.",
-            desktop_path.display()
-        );
-        return Ok(());
-    }
-
-    Err(anyhow!(
-        "Linux init not supported (no reachable `systemd --user` session, no XDG graphical session). \
-         Run `doggypile serve` manually under your init."
-    ))
 }
 
 pub(super) fn uninstall() -> anyhow::Result<()> {
@@ -228,6 +234,34 @@ fn has_xdg_session() -> bool {
         || std::env::var_os("XDG_SESSION_TYPE")
             .map(|v| !v.is_empty())
             .unwrap_or(false)
+}
+
+fn is_containerized() -> bool {
+    let env_marker = ["container", "DEVCONTAINER", "CODESPACES"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .any(|value| !value.is_empty());
+    let cgroup = std::fs::read_to_string("/proc/1/cgroup").unwrap_or_default();
+    container_facts(
+        Path::new("/.dockerenv").exists(),
+        Path::new("/run/.containerenv").exists(),
+        env_marker,
+        &cgroup,
+    )
+}
+
+fn container_facts(
+    docker_marker: bool,
+    podman_marker: bool,
+    env_marker: bool,
+    cgroup: &str,
+) -> bool {
+    docker_marker
+        || podman_marker
+        || env_marker
+        || ["docker", "containerd", "kubepods", "lxc", "podman"]
+            .iter()
+            .any(|marker| cgroup.contains(marker))
 }
 
 fn systemd_unit_name(unit_path: &Path) -> anyhow::Result<String> {
@@ -450,7 +484,17 @@ mod tests {
     }
 
     #[test]
-    fn install_rejects_headless_sessions_without_touching_systemd() {
+    fn container_detection_accepts_common_runtimes() {
+        assert!(container_facts(true, false, false, ""));
+        assert!(container_facts(false, true, false, ""));
+        assert!(container_facts(false, false, true, ""));
+        assert!(container_facts(false, false, false, "0::/docker/abc"));
+        assert!(container_facts(false, false, false, "0::/kubepods/pod"));
+        assert!(!container_facts(false, false, false, "0::/user.slice"));
+    }
+
+    #[test]
+    fn install_accepts_initless_container_without_touching_systemd() {
         let mut env = TempHome::new();
         let tmp = tempdir();
         let log = tmp.join("systemctl.log");
@@ -469,13 +513,12 @@ mod tests {
             ),
             ("XDG_CURRENT_DESKTOP", ""),
             ("XDG_SESSION_TYPE", ""),
+            ("container", "doggypile-test"),
         ]);
 
-        let err = install().expect_err("headless install should fail cleanly");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("Linux init not supported"),
-            "unexpected error: {msg}"
+        assert_eq!(
+            install().expect("container install mode"),
+            InstallOutcome::SessionOnly
         );
 
         assert!(
