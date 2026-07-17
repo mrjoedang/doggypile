@@ -3,6 +3,7 @@ import { createProjection } from './projection.js?v=20260714-tabs';
 import { renderMarkdown } from './markdown.js?v=20260714-tabs';
 import { createSessionRail } from './rail.js?v=20260716-preview-card';
 import { $, el, haptic, hapticize, layout, navigate } from './platform.js?v=20260716-modules';
+import { createDeviceRegistry, deviceLabel } from './devices.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -68,6 +69,10 @@ const state = {
   turnActive: false,
   creatingThread: false,
 };
+const { loadDevices, persistDevices, updateDevice, upsertFromFragment } = createDeviceRegistry({
+  mock: MOCK,
+  state,
+});
 
 const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
@@ -262,78 +267,6 @@ function scheduleTabActivityFlush() {
 }
 
 
-// --- device registry ---
-// One phone can hold pairings to many daemons. Persisted as
-// `doggypile:devices` { v: 1, devices: [{ id, name, token, relay, addrs,
-// addedAt, lastConnectedAt, lastError }] }, keyed by iroh node id. The old
-// single-slot `doggypile:creds` key migrates on first load and is left in
-// place so a rollback to an older build still reconnects.
-const DEVICES_KEY = 'doggypile:devices';
-const LEGACY_CREDS_KEY = 'doggypile:creds';
-
-function loadDevices() {
-  if (MOCK) {
-    // `?mock&machines=N` fakes extra paired machines for multi-device UI work.
-    const n = Math.max(1, Number(new URLSearchParams(location.search).get('machines')) || 1);
-    return Array.from({ length: n }, (_, i) => ({ id: i ? `mock${i + 1}` : 'mock', name: i ? `mock-${i + 1}` : 'mock', token: 'mock', relay: null, addrs: [] }));
-  }
-  let devices = [];
-  try {
-    const saved = JSON.parse(localStorage.getItem(DEVICES_KEY) || 'null');
-    if (saved?.v === 1 && Array.isArray(saved.devices)) devices = saved.devices.filter((d) => d?.id && d?.token);
-  } catch { /* corrupted registry: fall through to migration */ }
-  if (!devices.length) {
-    try {
-      const legacy = JSON.parse(localStorage.getItem(LEGACY_CREDS_KEY) || 'null');
-      if (legacy?.node && legacy?.token) {
-        devices = [{ id: legacy.node, name: null, token: legacy.token, relay: legacy.relay ?? null, addrs: legacy.addrs || [], addedAt: Date.now() }];
-        persistDevices(devices);
-      }
-    } catch { /* no legacy creds either */ }
-  }
-  return devices;
-}
-
-function persistDevices(devices) {
-  if (MOCK) return;
-  localStorage.setItem(DEVICES_KEY, JSON.stringify({ v: 1, devices }));
-}
-
-function updateDevice(id, patch) {
-  const dev = state.devices.find((d) => d.id === id);
-  if (!dev) return;
-  Object.assign(dev, patch);
-  persistDevices(state.devices);
-}
-
-// A scanned QR lands here as a URL fragment. Upsert by node id: re-scanning a
-// known machine refreshes its token/addresses, a new machine joins the list.
-function upsertFromFragment(devices) {
-  if (MOCK) return null;
-  const frag = new URLSearchParams(location.hash.slice(1));
-  const node = frag.get('node');
-  const token = frag.get('token');
-  if (!node || !token) return null;
-  const relay = frag.get('relay'); // URLSearchParams decodes it
-  const addrs = frag.getAll('addr');
-  const name = frag.get('name');
-  let dev = devices.find((d) => d.id === node);
-  if (dev) {
-    Object.assign(dev, { token, relay, addrs });
-    if (name) dev.name = name;
-  } else {
-    dev = { id: node, name, token, relay, addrs, addedAt: Date.now() };
-    devices.push(dev);
-  }
-  persistDevices(devices);
-  // Preserve any thread-restore state the history entry carries.
-  history.replaceState(history.state, '', location.pathname + location.search);
-  return dev;
-}
-
-function deviceLabel(d) {
-  return d?.name || (d ? `${d.id.slice(0, 8)}…` : '');
-}
 
 // --- workspace tab registry ---
 // Open-thread tabs live per browser tab (sessionStorage): a reload restores
