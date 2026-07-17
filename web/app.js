@@ -6,6 +6,7 @@ import { $, el, haptic, hapticize, layout, navigate } from './platform.js?v=2026
 import { createDeviceRegistry, deviceLabel } from './devices.js?v=20260716-modules';
 import { createThreadCache, THREAD_CACHE_MAX } from './thread-cache.js?v=20260716-modules';
 import { relativeTime as rel, short, truncate } from './utils.js?v=20260716-modules';
+import { createAppState, tabKeyFor } from './state.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -51,26 +52,7 @@ const icon = (name, cls = 'icon') => {
   return s;
 };
 
-const state = {
-  devices: [],
-  conns: new Map(), // device id -> connection (see connectDevice)
-  filter: 'all', // 'all' | device id — a view scope, never a connection switch
-  mode: 'normal', // 'normal' | 'follower' | 'unpaired'
-  screen: 'home', // 'home' | 'session'
-  tabs: [], // { key, deviceId, threadId, title, lastTurnActive, unread, turnStartedAt, lastActivityAt, lastActivityTail, draft }
-  active: null, // key of the selected tab (meaningful while screen === 'session')
-  ctxOpen: true,
-  ctxTab: 'details', // 'details' | 'activity' | 'changes'
-  mobilePane: 'session', // 'session' | 'context'
-  query: '',
-  newN: 0,
-  threadId: null,
-  threadTitle: '',
-  threadDeviceId: null,
-  projection: null,
-  turnActive: false,
-  creatingThread: false,
-};
+const state = createAppState();
 const { loadDevices, persistDevices, updateDevice, upsertFromFragment } = createDeviceRegistry({
   mock: MOCK,
   state,
@@ -85,7 +67,6 @@ const purgeThreadCache = threadCacheStore.purgeDevice;
 const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
 const inChat = () => !!state.threadId;
-const tabKeyFor = (deviceId, threadId) => `${deviceId}:${threadId}`;
 const activeTab = () => state.tabs.find((t) => t.key === state.active) || null;
 let tabLifecycleRevision = 0;
 const touchTabLifecycle = (tab) => { tab.lifecycleRevision = ++tabLifecycleRevision; };
