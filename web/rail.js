@@ -24,7 +24,7 @@ export function createSessionRail({ mount, getStatus, getMachine, getActivity, g
   layer.setAttribute('aria-orientation', 'vertical');
 
   const idleBack = document.createElement('div');
-  idleBack.className = 'session-rail-back session-rail-glass';
+  idleBack.className = 'session-rail-back';
   const lane = document.createElement('div');
   lane.className = 'session-rail-lane session-rail-glass';
   const items = document.createElement('div');

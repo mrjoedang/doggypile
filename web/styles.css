@@ -1349,9 +1349,21 @@ body.unpaired .wstrip { display: none; }
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
 }
-/* Dots stand on their own; the old glass capsules made the rail feel
-   mechanical and added a second competing scrub surface. */
-.session-rail-back, .session-rail-lane { display: none; }
+/* The old glass capsules made the rail feel mechanical and added a second
+   competing scrub surface; the lane stays gone. The idle backdrop is instead
+   a solid black notch protruding from the right screen edge behind the dots
+   and grid shortcut, hidden while scrubbing takes over the edge. */
+.session-rail-lane { display: none; }
+.session-rail-back {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  width: 40px;
+  border-radius: 20px 0 0 20px;
+  background: #000;
+  transition: opacity 0.2s ease;
+}
+.session-rail.scrubbing .session-rail-back { opacity: 0; }
 .session-rail-items { position: absolute; inset: 0; }
 .session-rail-item {
   --rail-flip-y: 0px;
