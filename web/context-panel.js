@@ -44,6 +44,7 @@ export function createContextPanel({
   renderStrip = () => {},
   tabIsViewed = () => false,
   markTabViewed = () => {},
+  persistTabs = () => {},
 } = {}) {
   if (!state || !activeTab || !connFor || !icon || !openMachineActions) {
     throw new TypeError('createContextPanel requires state, activeTab, connFor, icon, and openMachineActions');

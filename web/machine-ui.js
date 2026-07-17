@@ -288,8 +288,7 @@ export function createMachineUI({ model, persistence, connection, workspace, vie
     connection.dropConnection(dev.id); persistence.purgeThreadCache(dev.id);
     s.devices = s.devices.filter((d) => d.id !== dev.id); persistence.persistDevices(s.devices);
     if (s.filter === dev.id) s.filter = 'all';
-    const activeGone = model.activeTab()?.deviceId === dev.id;
-    s.tabs = s.tabs.filter((t) => t.deviceId !== dev.id); persistence.persistTabs();
+    const activeGone = workspace.forgetDevice?.(dev.id) ?? model.activeTab()?.deviceId === dev.id;
     if (!s.devices.length) { history.replaceState(null, ''); workspace.showUnpaired(); return; }
     if (activeGone && s.screen === 'session') { history.replaceState(null, ''); workspace.showHome(); }
     else { renderChips(); workspace.renderSessions(); workspace.renderStrip(); }

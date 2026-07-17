@@ -89,16 +89,15 @@ export function createThreadSync({
 
   function reconcile(connection, baseline) {
     const workspace = adapters.workspace;
+    if (workspace.syncSnapshots) {
+      workspace.syncSnapshots(connection, connection.threads || [], baseline);
+      return;
+    }
     for (const operation of planThreadReconciliation(state.tabs, connection.threads || [], connection.dev.id, baseline, timestampOf)) {
       const { tab, thread } = operation;
       if (operation.title !== undefined) tab.title = operation.title;
       if (operation.updated) tab.lastActivityAt = Math.max(tab.lastActivityAt || 0, operation.updated);
-      if (!operation.applyLifecycle) continue;
-      workspace.applyStatus?.(tab, operation.status, { detail: thread.mockActivity });
-      if (tab.lastTurnActive && LIVE_SNAPSHOT_TYPES.has(operation.status?.type)) {
-        workspace.touchLifecycle?.(tab, connection.attempt);
-      }
-      if (thread.mockUnread != null) tab.unread = Number(thread.mockUnread) || 0;
+      if (operation.applyLifecycle && thread.mockUnread != null) tab.unread = Number(thread.mockUnread) || 0;
     }
   }
 
