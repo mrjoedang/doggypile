@@ -7,6 +7,7 @@ import { createDeviceRegistry, deviceLabel } from './devices.js?v=20260716-modul
 import { createThreadCache, THREAD_CACHE_MAX } from './thread-cache.js?v=20260716-modules';
 import { relativeTime as rel, short, truncate } from './utils.js?v=20260716-modules';
 import { createAppState, tabKeyFor } from './state.js?v=20260716-modules';
+import { createTabStore } from './tab-store.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -63,6 +64,9 @@ const loadThreadCache = threadCacheStore.load;
 const persistThreadCache = threadCacheStore.persist;
 const cacheThread = threadCacheStore.put;
 const purgeThreadCache = threadCacheStore.purgeDevice;
+const tabStore = createTabStore({ state, tabKeyFor });
+const persistTabs = tabStore.persist;
+const restoreTabs = tabStore.restore;
 
 const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
@@ -257,47 +261,6 @@ function scheduleTabActivityFlush() {
 
 
 
-// --- workspace tab registry ---
-// Open-thread tabs live per browser tab (sessionStorage): a reload restores
-// the workspace, but two windows don't fight over one list. Ephemeral (not
-// yet started) sessions are never persisted.
-const TABS_KEY = 'doggypile:tabs';
-
-function persistTabs() {
-  try {
-    sessionStorage.setItem(TABS_KEY, JSON.stringify({
-      v: 1,
-      active: state.active,
-      tabs: state.tabs.filter((t) => !t.ephemeral).map(({ deviceId, threadId, title, unread, turnStartedAt, lastActivityAt, lastActivityTail, lastViewedAt, turnError, unreadForTurn }) => ({
-        deviceId, threadId, title, unread: unread || 0, turnStartedAt: turnStartedAt || null,
-        lastActivityAt: lastActivityAt || 0, lastActivityTail: lastActivityTail || '', lastViewedAt: lastViewedAt || 0,
-        turnError: turnError || '', unreadForTurn: !!unreadForTurn,
-      })),
-    }));
-  } catch { /* storage full or unavailable: tabs stay in-memory */ }
-}
-
-function restoreTabs() {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(TABS_KEY) || 'null');
-    if (saved?.v !== 1) return;
-    for (const t of saved.tabs || []) {
-      if (!t?.deviceId || !t?.threadId) continue;
-      if (!state.devices.some((d) => d.id === t.deviceId)) continue;
-      const key = tabKeyFor(t.deviceId, t.threadId);
-      if (state.tabs.some((x) => x.key === key)) continue;
-      // Active/waiting server requests are connection-scoped and cannot be
-      // resumed from browser storage. Live notifications re-establish them.
-      state.tabs.push({
-        key, deviceId: t.deviceId, threadId: t.threadId, title: t.title || 'Session', ephemeral: false,
-        lastTurnActive: false, unread: Math.max(0, Number(t.unread) || 0), turnStartedAt: t.turnStartedAt || null,
-        lastActivityAt: t.lastActivityAt || 0, lastActivityTail: t.lastActivityTail || '', lastViewedAt: t.lastViewedAt || 0,
-        turnError: t.turnError || '', waitingForUser: false, unreadForTurn: !!t.unreadForTurn, draft: '',
-      });
-    }
-    if (saved.active && state.tabs.some((t) => t.key === saved.active)) state.active = saved.active;
-  } catch { /* corrupted: start with no tabs */ }
-}
 
 // --- connection pool ---
 // Every remembered machine keeps its own live connection; the chip row is a
