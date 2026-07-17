@@ -187,7 +187,6 @@ export function createWorkspaceTabs({
     tab.turnStartedAt = null;
     tab.lastActivityAt = at;
     tab.lastTurnEndedAt = at;
-    touch(tab);
     if (failed) tab.turnError = detail || 'Turn failed';
     if (!isViewed(tab) && !tab.unreadForTurn) tab.unread = Math.min(99, (tab.unread || 0) + 1);
     tab.unreadForTurn = false;
@@ -237,21 +236,25 @@ export function createWorkspaceTabs({
     const activityChanged = recordActivity(tab, message);
     let lifecycleChanged = false;
     if (message.method === 'turn/started') {
-      if (!tab.lastTurnActive) tab.turnStartedAt = now();
-      tab.waitingForUser = false;
-      tab.lastTurnActive = true;
-      tab.turnError = '';
-      tab.unreadForTurn = false;
-      tab.activeTurnId = message.params?.turn?.id || message.params?.turnId || null;
-      tab.terminalWithoutId = false;
-      tab.lastActivityAt = now();
-      lifecycleChanged = true;
+      const turnId = message.params?.turn?.id || message.params?.turnId || null;
+      const duplicate = tab.lastTurnActive && tab.activeTurnId === turnId && !tab.waitingForUser && !tab.turnError;
+      if (!duplicate) {
+        if (!tab.lastTurnActive) tab.turnStartedAt = now();
+        tab.waitingForUser = false;
+        tab.lastTurnActive = true;
+        tab.turnError = '';
+        tab.unreadForTurn = false;
+        tab.activeTurnId = turnId;
+        tab.terminalWithoutId = false;
+        tab.lastActivityAt = now();
+        lifecycleChanged = true;
+      }
     } else if (message.method === 'thread/status/changed') {
       const next = message.params?.status;
-      if (next?.type === 'idle' && tab.lastTurnActive) finishTurn(tab);
-      else applyStatus(tab, next, { markUnread: true, detail: message.params?.message });
-      tab.lastActivityAt = now();
-      lifecycleChanged = true;
+      lifecycleChanged = next?.type === 'idle' && tab.lastTurnActive
+        ? finishTurn(tab)
+        : applyStatus(tab, next, { markUnread: true, detail: message.params?.message });
+      if (lifecycleChanged) tab.lastActivityAt = now();
     }
     if (message.method === 'item/completed' && message.params?.item?.type === 'agentMessage' && !isViewed(tab) && !tab.unreadForTurn) {
       tab.unread = Math.min(99, (tab.unread || 0) + 1);
@@ -260,12 +263,10 @@ export function createWorkspaceTabs({
     }
     if (message.method === 'turn/completed') {
       const failed = message.params?.turn?.status === 'failed';
-      finishTurn(tab, { failed, detail: failed ? message.params?.turn?.error?.message || 'Turn failed' : '', turnId: message.params?.turn?.id || null });
-      lifecycleChanged = true;
+      lifecycleChanged = finishTurn(tab, { failed, detail: failed ? message.params?.turn?.error?.message || 'Turn failed' : '', turnId: message.params?.turn?.id || null });
     } else if (message.method === 'turn/failed') {
       const error = message.params?.error;
-      finishTurn(tab, { failed: true, detail: typeof error === 'string' ? error : error?.message || message.params?.message || 'Turn failed', turnId: message.params?.turnId || null });
-      lifecycleChanged = true;
+      lifecycleChanged = finishTurn(tab, { failed: true, detail: typeof error === 'string' ? error : error?.message || message.params?.message || 'Turn failed', turnId: message.params?.turnId || null });
     }
     if (lifecycleChanged) {
       touch(tab, connection.attempt);
@@ -367,8 +368,17 @@ export function createWorkspaceTabs({
     tab.unreadForTurn = false;
     tab.activeTurnId = null;
     tab.terminalWithoutId = false;
+    tab.draft = '';
     touch(tab, attempt);
     commit('turn-start');
+  }
+
+  function acknowledgeLocalTurn(tab, turnId) {
+    if (!turnId || !tab.lastTurnActive || tab.activeTurnId) return false;
+    tab.activeTurnId = turnId;
+    touch(tab);
+    commit('turn-acknowledged');
+    return true;
   }
 
   function failLocalTurn(tab, error, attempt) {
@@ -389,6 +399,15 @@ export function createWorkspaceTabs({
     state.active = tab.key;
     commit('materialized');
     return tab;
+  }
+
+  function reconcileReadStatus(tab, value, { baselineRevision, attempt } = {}) {
+    if ((tab.lifecycleRevision || 0) !== baselineRevision) return false;
+    if (value?.type === 'idle' && tab.lastTurnActive) return false;
+    if (!applyStatus(tab, value)) return false;
+    touch(tab, attempt);
+    commit('read-status');
+    return true;
   }
 
   function syncSnapshots(connection, threads, baseline = new Map(state.tabs.map((tab) => [tab.key, tab.lifecycleRevision || 0]))) {
@@ -436,8 +455,9 @@ export function createWorkspaceTabs({
 
   return {
     activeTab, restore, persist, status, snapshotStatus, activity, markViewed,
-    applyStatus, finishTurn, notify, stashDraft, select, openThreadTab, newTab,
-    close, beginLocalTurn, failLocalTurn, materialized, syncSnapshots,
-    forgetDevice, visibleTabs, touchLifecycle: touch, destroy,
+    notify, stashDraft, select, openThreadTab, newTab, close, beginLocalTurn,
+    acknowledgeLocalTurn, failLocalTurn, materialized, reconcileReadStatus,
+    syncSnapshots, forgetDevice,
+    visibleTabs, destroy,
   };
 }

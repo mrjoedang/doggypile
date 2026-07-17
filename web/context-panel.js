@@ -10,17 +10,17 @@ import { relativeTime, truncate } from './utils.js?v=20260716-context-panel';
  * pane transitions while preserving the existing DOM and ARIA contract.
  *
  * Owned state: state.ctxOpen, state.ctxTab, state.mobilePane; the persisted
- * `doggypile:ctxOpen` preference; context-delay, details-refresh, activity-flush,
- * and resize-animation timers; DOM listeners installed by this factory.
+ * `doggypile:ctxOpen` preference; context-delay, details-refresh, and
+ * resize-animation timers; DOM listeners installed by this factory.
  *
  * Dependencies: shared app state and session/connection readers, icon rendering,
  * machine-action and ephemeral-machine adapters, and small integration callbacks
- * for composer, jump control, strip/session list persistence, and tab viewing.
+ * for composer, jump control, strip rendering, and tab viewing.
  * Machine dialogs and selectors remain behind callbacks at this seam.
  *
- * Returned interface: render(), renderBody(), renderBodySoon(),
- * scheduleActivityFlush(), and destroy(). Calls are idempotent; destroy() cancels
- * timers, breakpoint subscription, and all listeners.
+ * Returned interface: render(), renderBody(), renderBodySoon(), and destroy().
+ * Calls are idempotent; destroy() cancels timers, breakpoint subscription, and
+ * all listeners.
  *
  * Invariants: ephemeral sessions never expose context; phones remain on the
  * full-bleed session pane while the segmented context UI is disabled; tablet
@@ -42,8 +42,6 @@ export function createContextPanel({
   updateComposer = () => {},
   updateJump = () => {},
   renderStrip = () => {},
-  renderSessions = () => {},
-  persistTabs = () => {},
   tabIsViewed = () => false,
   markTabViewed = () => {},
 } = {}) {
@@ -53,7 +51,6 @@ export function createContextPanel({
 
   const disposers = [];
   let ctxTimer = null;
-  let activityFlushTimer = null;
   let resizeRaf = 0;
 
   try { state.ctxOpen = localStorage.getItem('doggypile:ctxOpen') !== '0'; } catch { /* storage is optional */ }
@@ -247,15 +244,6 @@ export function createContextPanel({
     $('#ctx-toggle')?.focus();
   }
 
-  function scheduleActivityFlush() {
-    if (activityFlushTimer) return;
-    activityFlushTimer = setTimeout(() => {
-      activityFlushTimer = null;
-      persistTabs();
-      renderStrip();
-      if (state.screen === 'home') renderSessions();
-    }, 300);
-  }
 
   listen($('#ctx-toggle'), 'click', () => {
     state.ctxOpen = !state.ctxOpen;
@@ -298,12 +286,11 @@ export function createContextPanel({
 
   function destroy() {
     clearTimeout(ctxTimer);
-    clearTimeout(activityFlushTimer);
     clearInterval(detailsTimer);
     cancelAnimationFrame(resizeRaf);
     unsubscribeLayout();
     for (const dispose of disposers.splice(0)) dispose();
   }
 
-  return { render, renderBody, renderBodySoon, scheduleActivityFlush, destroy };
+  return { render, renderBody, renderBodySoon, destroy };
 }

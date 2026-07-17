@@ -16,12 +16,10 @@ import { truncate } from './utils.js';
  * remains in the injected `state` object.
  *
  * Dependencies: DOM primitives and selectors, projection/cache adapters,
- * connection lookup, presentation helpers, and the lifecycle callbacks below.
- * Workspace/tab lifecycle policy is deliberately injected: this module calls
- * `lifecycle.applyStatus`, `finishTurn`, `recordActivity`, `touch`, `isViewed`
- * and `markStarted`, but does not recreate those rules. Likewise navigation,
- * tab persistence, rail/home/context repainting and thread-list refresh are
- * callbacks at the `workspace` seam.
+ * connection lookup, presentation helpers, and a workspace adapter. Workspace
+ * tabs is the sole tab registry/lifecycle owner: notifications, read-status
+ * reconciliation, local-turn begin/failure, and materialization cross that seam.
+ * Navigation, history, and presentation remain separate workspace callbacks.
  *
  * Returned interface: `openThread`, `onNotify`, `materializeEphemeral`, `send`,
  * `interrupt`, `render`, `scheduleRender`, composer/scroll methods, rail
@@ -31,7 +29,7 @@ import { truncate } from './utils.js';
  * - stale reads never replace the active conversation;
  * - a read snapshot cannot overwrite lifecycle changes observed while reading;
  * - only notifications for the visible device/thread reach its projection;
- * - one render RAF and one slow-read timer are outstanding at most;
+ * - every owned RAF is retained and cancelled on dispose;
  * - preview rendering never mutates the live projection and can restore the
  *   exact live DOM/node registry/scroll position;
  * - dispose cancels owned asynchronous UI work and removes DOM listeners.
@@ -46,7 +44,6 @@ export function createChatController({
   connections: { connFor, deviceLabel },
   cache: threadCacheStore,
   workspace,
-  lifecycle,
   effects = {},
   projectionFactory = createProjection,
   clock = globalThis,
@@ -65,7 +62,14 @@ export function createChatController({
   const railPreview = { active: false, originKey: null, shownKey: null, originRender: null };
   let renderFrame = null;
   let slowReadTimer = null;
+  const frames = new Set();
   const listeners = [];
+  function queueFrame(callback) {
+    let frame;
+    frame = requestFrame(() => { frames.delete(frame); callback(); });
+    frames.add(frame);
+    return frame;
+  }
 
   const activeTab = () => workspace.activeTab();
   const activeConn = () => state.threadDeviceId ? connFor(state.threadDeviceId) : null;
@@ -223,14 +227,9 @@ export function createChatController({
       threadCacheStore.put(cacheKey, response.thread);
       const fresh = projectionFactory(); fresh.seedFromThread(response.thread); state.projection = fresh;
       const currentTab = activeTab();
-      if (response.thread.status && currentTab?.key === cacheKey && (currentTab.lifecycleRevision || 0) === lifecycleBeforeRead) {
-        const type = response.thread.status.type;
-        if (!(type === 'idle' && currentTab.lastTurnActive)) {
-          lifecycle.applyStatus(currentTab, response.thread.status);
-          if (currentTab.lastTurnActive && type === 'active') lifecycle.touch(currentTab, conn.attempt);
-          state.turnActive = !!currentTab.lastTurnActive;
-          workspace.persistTabs(); workspace.renderRail();
-        }
+      if (response.thread.status && currentTab?.key === cacheKey) {
+        workspace.reconcileReadStatus(currentTab, response.thread.status, { baselineRevision: lifecycleBeforeRead, attempt: conn.attempt });
+        state.turnActive = !!currentTab.lastTurnActive;
       }
     }
     render();
@@ -301,41 +300,23 @@ export function createChatController({
     chat.hintEl.remove(); chat.workingEl.remove();
     if (!messages.length && !turnActive) log.append(chat.hintEl); if (turnActive) log.append(chat.workingEl);
     if (!preview) updateComposer();
-    if (stick) { scrollToLatest(); requestFrame(() => scrollToLatest()); }
+    if (stick) { scrollToLatest(); queueFrame(() => scrollToLatest()); }
     if (preview) $('#jump').hidden = true; else updateJump();
     if (!preview) workspace.renderContextSoon();
   }
 
   function scheduleRender() {
     if (renderFrame !== null) return;
-    renderFrame = requestFrame(() => { renderFrame = null; if (!state.threadId) return;
+    renderFrame = queueFrame(() => { renderFrame = null; if (!state.threadId) return;
       if (railPreview.active) { if (railPreview.shownKey === railPreview.originKey) render({ projection: state.projection, turnActive: state.turnActive, preview: true }); }
       else render(); });
   }
 
   function onNotify(conn, message) {
     const route = routeChatNotification(message, { deviceId: conn.dev.id, activeDeviceId: state.threadDeviceId, activeThreadId: state.threadId });
-    const tab = route.threadId ? workspace.findTab(conn.dev.id, route.threadId) : null;
-    let statusChanged = false;
-    if (tab) {
-      const activityChanged = lifecycle.recordActivity(tab, message);
-      if (route.kind === 'turn-started') { lifecycle.markStarted(tab, message); statusChanged = true; }
-      else if (route.kind === 'status') { const status = message.params?.status;
-        if (status?.type === 'idle' && tab.lastTurnActive) lifecycle.finishTurn(tab, {});
-        else lifecycle.applyStatus(tab, status, { markUnread: true, detail: message.params?.message });
-        tab.lastActivityAt = Date.now(); statusChanged = true; }
-      if (route.kind === 'item-completed' && message.params?.item?.type === 'agentMessage' && !lifecycle.isViewed(tab) && !tab.unreadForTurn) {
-        tab.unread = Math.min(99, (tab.unread || 0) + 1); tab.unreadForTurn = true; statusChanged = true;
-      }
-      if (route.kind === 'turn-completed') { const failed = message.params?.turn?.status === 'failed';
-        lifecycle.finishTurn(tab, { failed, detail: failed ? message.params?.turn?.error?.message || 'Turn failed' : '', turnId: message.params?.turn?.id || null }); statusChanged = true;
-      } else if (route.kind === 'turn-failed') { const error = message.params?.error;
-        lifecycle.finishTurn(tab, { failed: true, detail: typeof error === 'string' ? error : error?.message || message.params?.message || 'Turn failed', turnId: message.params?.turnId || null }); statusChanged = true; }
-      if (statusChanged) { lifecycle.touch(tab, conn.attempt); workspace.persistTabs(); workspace.renderRail(); workspace.renderHomeIfVisible(); }
-      else if (activityChanged) { lifecycle.touch(tab, conn.attempt); workspace.scheduleActivityFlush(); }
-    }
+    const { tab } = workspace.notify(conn, message);
     if (!route.visible) return;
-    if (route.kind === 'turn-started') { state.turnActive = true; scheduleRender(); return; }
+    if (route.kind === 'turn-started') { state.turnActive = tab ? !!tab.lastTurnActive : true; scheduleRender(); return; }
     if (['turn-completed', 'turn-failed'].includes(route.kind)) { state.turnActive = tab ? !!tab.lastTurnActive : false; scheduleRender(); return; }
     if (route.kind === 'status') { state.turnActive = tab ? !!tab.lastTurnActive : message.params?.status?.type === 'active'; scheduleRender(); return; }
     if (state.projection?.applyNotification(message)) scheduleRender();
@@ -350,10 +331,11 @@ export function createChatController({
       id = response?.thread?.id; if (!id) throw new Error('the daemon returned no thread id');
     } catch (error) { toast(`Couldn’t start a session: ${error?.message || error}`); return false; }
     finally { state.creatingThread = false; }
-    tab.threadId = id; tab.ephemeral = false; tab.title = truncate(firstText, 44) || 'New session'; tab.key = workspace.tabKeyFor(tab.deviceId, id);
-    state.active = tab.key; state.threadId = id; state.threadDeviceId = tab.deviceId; state.threadTitle = tab.title; state.projection = projectionFactory(); resetNodes();
-    workspace.replaceThreadHistory(tab); workspace.persistTabs(); conn.rpc.request('thread/resume', { threadId: id }).catch(() => {});
-    workspace.refreshThreads(conn); workspace.renderRail(); workspace.renderSessionChrome(); return true;
+    const title = truncate(firstText, 44) || 'New session';
+    workspace.materialized(tab, { deviceId: tab.deviceId, threadId: id, title });
+    state.threadId = id; state.threadDeviceId = tab.deviceId; state.threadTitle = tab.title; state.projection = projectionFactory(); resetNodes();
+    workspace.replaceThreadHistory(tab); conn.rpc.request('thread/resume', { threadId: id }).catch(() => {});
+    workspace.refreshThreads(conn); workspace.renderSessionChrome(); return true;
   }
 
   async function send() {
@@ -362,13 +344,13 @@ export function createChatController({
     if (tab?.ephemeral) { if (!tab.deviceId) { toast('Pick a machine for this session first.'); return; } if (!(await materializeEphemeral(tab, text))) return; }
     const conn = activeConn(); if (!state.threadId) return;
     if (!conn?.rpc || conn.status !== 'connected') { toast(`${deviceLabel(conn?.dev) || 'This machine'} isn’t connected — hang on.`); return; }
-    haptic(); box.value = ''; if (tab) tab.draft = ''; autoResize();
+    haptic(); box.value = ''; autoResize();
     const localMessageId = state.projection?.addLocalUserMessage(text); state.turnActive = true;
-    if (tab) { lifecycle.markSending(tab, conn.attempt); workspace.persistTabs(); workspace.renderRail(); }
+    if (tab) workspace.beginLocalTurn(tab, conn.attempt);
     chat.forceStick = true; scheduleRender();
     try { const response = await conn.rpc.request('turn/start', { threadId: state.threadId, input: [{ type: 'text', text, text_elements: [] }] });
-      if (tab?.lastTurnActive && !tab.activeTurnId && response?.turn?.id) tab.activeTurnId = response.turn.id;
-    } catch (error) { state.turnActive = false; if (tab) { lifecycle.markSendFailed(tab, error, conn.attempt); workspace.persistTabs(); workspace.renderRail(); }
+      if (tab && response?.turn?.id) workspace.acknowledgeLocalTurn(tab, response.turn.id);
+    } catch (error) { state.turnActive = false; if (tab) workspace.failLocalTurn(tab, error, conn.attempt);
       if (localMessageId) state.projection?.removeLocalMessage(localMessageId); if (!box.value) { box.value = text; autoResize(); }
       toast(`Send failed: ${error?.message || error}`); scheduleRender(); }
   }
@@ -382,7 +364,7 @@ export function createChatController({
   }
   function on(target, type, listener, options) { target.addEventListener(type, listener, options); listeners.push(() => target.removeEventListener(type, listener, options)); }
   function clearSlowRead() { if (slowReadTimer !== null) { clearTimer(slowReadTimer); slowReadTimer = null; } }
-  function dispose() { listeners.splice(0).forEach((remove) => remove()); clearSlowRead(); if (renderFrame !== null) cancelFrame(renderFrame); renderFrame = null; }
+  function dispose() { listeners.splice(0).forEach((remove) => remove()); clearSlowRead(); for (const frame of frames) cancelFrame(frame); frames.clear(); renderFrame = null; }
 
   return { bind, dispose, openThread, onNotify, materializeEphemeral, send, interrupt, render, scheduleRender,
     updateComposer, autoResize, updateJump, scrollToLatest, railExcerpt, beginRailPreview, previewRailTab, endRailPreview };

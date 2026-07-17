@@ -36,20 +36,20 @@ function addTab(h, patch = {}) {
 test('waiting status marks one unread and preserves active interrupt lifecycle', () => {
   const h = harness();
   const tab = addTab(h);
-  h.workspace.applyStatus(tab, { type: 'active', activeFlags: ['waitingOnApproval'] }, { markUnread: true });
+  h.workspace.notify(h.connections.get('dev'), { method: 'thread/status/changed', params: { threadId: 'thread', status: { type: 'active', activeFlags: ['waitingOnApproval'] } } });
   assert.equal(tab.unread, 1);
   assert.equal(tab.unreadForTurn, true);
   assert.equal(tab.waitingForUser, true);
   assert.equal(tab.lastTurnActive, true);
   assert.equal(tab.lastActivityTail, 'Waiting for approval');
-  h.workspace.applyStatus(tab, { type: 'needs-you' }, { markUnread: true });
+  h.workspace.notify(h.connections.get('dev'), { method: 'thread/status/changed', params: { threadId: 'thread', status: { type: 'needs-you' } } });
   assert.equal(tab.unread, 1, 'same turn is counted once');
 });
 
 test('delayed completion cannot terminate a newer turn', () => {
   const h = harness();
   const tab = addTab(h, { lastTurnActive: true, activeTurnId: 'turn-b' });
-  assert.equal(h.workspace.finishTurn(tab, { turnId: 'turn-a' }), false);
+  assert.equal(h.workspace.notify(h.connections.get('dev'), { method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn-a' } } }).lifecycleChanged, false);
   assert.equal(tab.lastTurnActive, true);
   assert.equal(tab.activeTurnId, 'turn-b');
 });
@@ -59,11 +59,17 @@ test('terminal notifications are idempotent and unread is capped', () => {
   const tab = addTab(h, { lastTurnActive: true, activeTurnId: 'turn-a', unread: 99 });
   const connection = h.connections.get('dev');
   const message = { method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'turn-a', status: 'completed' } } };
-  h.workspace.notify(connection, message);
-  h.workspace.notify(connection, message);
+  const beforeRevision = tab.lifecycleRevision || 0;
+  const first = h.workspace.notify(connection, message);
+  const afterFirstRevision = tab.lifecycleRevision;
+  const duplicate = h.workspace.notify(connection, message);
   assert.equal(tab.unread, 99);
   assert.equal(tab.lastFinishedTurnId, 'turn-a');
   assert.equal(tab.lastTurnActive, false);
+  assert.equal(first.lifecycleChanged, true);
+  assert.equal(duplicate.lifecycleChanged, false);
+  assert.equal(afterFirstRevision, beforeRevision + 1, 'one notification makes one lifecycle transition');
+  assert.equal(tab.lifecycleRevision, afterFirstRevision, 'duplicate terminal does not transition again');
 });
 
 test('select stashes old draft, marks target viewed, and replaces session history', () => {
