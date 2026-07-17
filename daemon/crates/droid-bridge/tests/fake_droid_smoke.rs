@@ -27,7 +27,10 @@ async fn initialize_thread_start_turn_start_smoke() {
     )
     .await;
     let init = read_until_response(&mut read, 1).await;
-    assert_eq!(init["result"]["userAgent"], "doggypile-droid-bridge/0.1.0");
+    assert_eq!(
+        init["result"]["userAgent"],
+        concat!("doggypile-droid-bridge/", env!("CARGO_PKG_VERSION"))
+    );
 
     let cwd = tempfile::TempDir::new().unwrap();
     send(
