@@ -1,8 +1,8 @@
 //! T14 / V2 — cross-cwd `thread/start` and `thread/list` separation.
 //!
-//! Two `thread/start { cwd:/tmp/a }` and `thread/start { cwd:/tmp/b }` round
-//! trip cleanly, each binding a distinct opencode session id. A subsequent
-//! `thread/list { cwd:/tmp/a }` returns only the threads under `/tmp/a`.
+//! Two `thread/start { cwd:/tmp/a }` and `thread/start { cwd:/tmp/b }` calls
+//! bind distinct OpenCode sessions. `thread/list` fetches both upstream sessions
+//! and applies each requested CWD filter against the bridge's local bindings.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -31,22 +31,21 @@ async fn two_threads_in_different_cwds_remain_separate() {
             }),
         );
         guard.route(
-            "GET /session?directory=%2Ftmp%2Fa",
-            json!([{
-                "id":"ses_a",
-                "directory":"/tmp/a",
-                "title":"V2-A",
-                "time":{"created":1_000,"updated":1_000}
-            }]),
-        );
-        guard.route(
-            "GET /session?directory=%2Ftmp%2Fb",
-            json!([{
-                "id":"ses_b",
-                "directory":"/tmp/b",
-                "title":"V2-B",
-                "time":{"created":1_001,"updated":1_001}
-            }]),
+            "GET /session?",
+            json!([
+                {
+                    "id":"ses_a",
+                    "directory":"/tmp/a",
+                    "title":"V2-A",
+                    "time":{"created":1_000,"updated":1_000}
+                },
+                {
+                    "id":"ses_b",
+                    "directory":"/tmp/b",
+                    "title":"V2-B",
+                    "time":{"created":1_001,"updated":1_001}
+                }
+            ]),
         );
     }
 
@@ -123,18 +122,21 @@ async fn two_threads_in_different_cwds_remain_separate() {
     assert_eq!(data_b[0]["id"].as_str(), Some(thread_b.as_str()));
     assert_eq!(data_b[0]["cwd"], "/tmp/b");
 
-    // Confirm the bridge actually filtered at the upstream level (not just
-    // post-filtered locally) by inspecting the captured request paths.
+    // The bridge must fetch the complete upstream set and filter against local
+    // bindings; forwarding `directory=` could hide Codex-side CWD overrides.
     let seen = fx.seen();
-    assert!(
+    assert_eq!(
         seen.iter()
-            .any(|line| line.contains("GET /session?directory=%2Ftmp%2Fa")),
-        "expected /tmp/a directory filter on upstream GET /session: {seen:?}"
+            .filter(|line| line.starts_with("GET /session?"))
+            .count(),
+        2,
+        "expected one unfiltered upstream fetch per list call: {seen:?}"
     );
     assert!(
-        seen.iter()
-            .any(|line| line.contains("GET /session?directory=%2Ftmp%2Fb")),
-        "expected /tmp/b directory filter on upstream GET /session: {seen:?}"
+        !seen
+            .iter()
+            .any(|line| line.contains("GET /session?directory=")),
+        "cwd filtering must remain local: {seen:?}"
     );
 
     // Drain any queued response bodies just to keep the mutex's `bodies` map
