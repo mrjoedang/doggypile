@@ -11,6 +11,17 @@ const mqDesk = matchMedia('(min-width: 1100px)');
 const mqTab = matchMedia('(min-width: 700px)');
 export const layout = () => (mqDesk.matches ? 'desktop' : mqTab.matches ? 'tablet' : 'mobile');
 
+// Subscribe to semantic layout changes without exposing the module's private
+// MediaQueryList instances. The callback runs once when either breakpoint
+// crosses; ordinary pixel resizes within a layout are intentionally ignored.
+export function subscribeLayoutChanges(callback) {
+  const onChange = () => callback(layout());
+  for (const query of [mqDesk, mqTab]) query.addEventListener('change', onChange);
+  return () => {
+    for (const query of [mqDesk, mqTab]) query.removeEventListener('change', onChange);
+  };
+}
+
 // iOS Safari has no vibration API. An invisible native switch lets physical
 // taps retain the system haptic on controls where hapticize is applied.
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
