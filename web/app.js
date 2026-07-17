@@ -5,6 +5,7 @@ import { createSessionRail } from './rail.js?v=20260716-preview-card';
 import { $, el, haptic, hapticize, layout, navigate } from './platform.js?v=20260716-modules';
 import { createDeviceRegistry, deviceLabel } from './devices.js?v=20260716-modules';
 import { createThreadCache, THREAD_CACHE_MAX } from './thread-cache.js?v=20260716-modules';
+import { relativeTime as rel, short, truncate } from './utils.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -2594,22 +2595,6 @@ function autoResize() {
   box.style.height = 'auto';
   box.style.height = Math.min(box.scrollHeight, 144) + 'px';
   updateComposer();
-}
-function short(p) { return p ? p.split('/').slice(-1)[0] : ''; }
-function truncate(s, n) {
-  if (!s) return '';
-  return s.length > n ? `${s.slice(0, n)}…` : s;
-}
-function rel(ts) {
-  if (!ts) return '';
-  const raw = typeof ts === 'number' ? ts : Date.parse(ts);
-  const d = raw < 10_000_000_000 ? raw * 1000 : raw;
-  if (!Number.isFinite(d)) return '';
-  const s = (Date.now() - d) / 1000;
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }
 
 // --- wiring ---
