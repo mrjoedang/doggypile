@@ -125,3 +125,32 @@ test('new tab reuses the sole ephemeral and preselects sole connected device', (
   assert.equal(h.state.tabs.length, 1);
   assert.equal(navigations, 2);
 });
+
+test('default activity timer preserves the host timer receiver', () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const callbacks = [];
+  globalThis.setTimeout = function receiverSensitiveSetTimeout(callback) {
+    assert.equal(this, globalThis);
+    callbacks.push(callback);
+    return callbacks.length;
+  };
+  globalThis.clearTimeout = function receiverSensitiveClearTimeout() {
+    assert.equal(this, globalThis);
+  };
+  try {
+    const state = { tabs: [], active: null };
+    const workspace = createWorkspaceTabs({ state });
+    const tab = { key: 'dev:thread', deviceId: 'dev', threadId: 'thread', unread: 0 };
+    state.tabs.push(tab);
+    workspace.notify({ dev: { id: 'dev' }, attempt: 1 }, {
+      method: 'item/started',
+      params: { threadId: 'thread', item: { type: 'commandExecution', command: 'pwd' } },
+    });
+    assert.equal(callbacks.length, 1);
+    workspace.destroy();
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
