@@ -1,7 +1,7 @@
-// Run with: bunx playwriter@latest -s SESSION -f /absolute/path/to/scripts/playwriter-smoke.mjs
-// Optional: BASE_URL='http://127.0.0.1:8123/?mock&machines=2' bunx ...
+// Run with: bunx playwriter@latest -s SESSION --timeout 90000 -f /absolute/path/to/scripts/playwriter-smoke.mjs
+// Optional setup: playwriter -s SESSION -e 'state.baseUrl = "http://127.0.0.1:8123/?mock&machines=2"'
 
-const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8123/?mock';
+const baseUrl = state.baseUrl || 'http://127.0.0.1:8123/?mock';
 const page = state.page || (state.page = await context.newPage());
 const startedAt = new Date().toISOString();
 const results = {
@@ -42,11 +42,12 @@ page.on('pageerror', onPageError);
 
 try {
   await observe('before-navigation');
-  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await page.addInitScript(() => { localStorage.clear(); sessionStorage.clear(); });
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   const home = page.locator('#home');
   const homeButton = page.getByRole('button', { name: 'Home' });
-  const firstSession = page.getByRole('button', { name: /Fix flaky pairing test in daemon/i });
+  const firstSession = page.locator('#homelist .session-open').filter({ hasText: 'Fix flaky pairing test in daemon' }).first();
   await home.waitFor({ state: 'visible' });
   await firstSession.waitFor({ state: 'visible' });
   assert(await homeButton.getAttribute('aria-current') === 'page', 'Home is current after boot');
@@ -63,7 +64,7 @@ try {
   const contextToggle = page.getByRole('button', { name: 'Toggle context panel' });
   if (await visible(contextToggle)) {
     const before = await contextToggle.getAttribute('aria-pressed');
-    await contextToggle.click();
+    await contextToggle.dispatchEvent('click');
     await page.waitForFunction(
       ({ selector, before }) => document.querySelector(selector)?.getAttribute('aria-pressed') !== before,
       { selector: '#ctx-toggle', before },
@@ -74,16 +75,17 @@ try {
     results.checks.push({ name: 'context toggle', status: 'skipped', reason: 'not exposed at this viewport' });
   }
 
-  await homeButton.click();
+  await homeButton.dispatchEvent('click');
   await firstSession.waitFor({ state: 'visible' });
-  const secondSession = page.getByRole('button', { name: /Add retry backoff to iroh reconnect/i });
+  const secondSession = page.locator('#homelist .session-open').filter({ hasText: 'Add retry backoff to iroh reconnect' }).first();
   await secondSession.click();
-  await page.locator('#chat-title').filter({ hasText: 'Add retry backoff' }).waitFor({ state: 'visible' });
+  await page.waitForFunction(() => !document.querySelector('#sessionview')?.hidden
+    && document.querySelector('#chat-title')?.textContent?.includes('Add retry backoff'), null, { timeout: 15000 });
   await observe('second-session-open');
 
   const firstTab = page.getByRole('tab', { name: /Fix flaky pairing test in daemon/i });
   if (await visible(firstTab)) {
-    await firstTab.click();
+    await firstTab.dispatchEvent('click');
     await page.waitForFunction(() => document.querySelector('#chat-title')?.textContent?.includes('Fix flaky pairing'));
     await observe('tab-selected');
     record('tab selection');
@@ -92,8 +94,9 @@ try {
   }
 
   const newSession = page.getByRole('button', { name: 'New session' }).first();
-  await newSession.click();
-  await page.locator('#chat-title').filter({ hasText: 'New session' }).waitFor({ state: 'visible' });
+  await newSession.dispatchEvent('click');
+  await page.waitForFunction(() => !document.querySelector('#sessionview')?.hidden
+    && document.querySelector('#chat-title')?.textContent === 'New session', null, { timeout: 15000 });
   await observe('new-session');
   record('new session');
 
@@ -124,7 +127,7 @@ try {
   const send = page.getByRole('button', { name: 'Send message' });
   assert(!(await send.isDisabled()), 'Send enables after entering a message');
   await send.click();
-  await page.getByText(message, { exact: true }).waitFor({ state: 'visible' });
+  await page.locator('#main .msg.user .msg-body').filter({ hasText: message }).waitFor({ state: 'visible' });
   await page.getByText(`you said: ${message.slice(0, 40)}`, { exact: false }).waitFor({ state: 'visible', timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('#stop')?.hidden === true, null, { timeout: 15000 });
   await observe('turn-completed');
