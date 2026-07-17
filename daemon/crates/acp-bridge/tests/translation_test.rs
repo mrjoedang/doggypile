@@ -43,8 +43,16 @@ fn test_acp_to_codex_initialize_result() {
     assert!(codex_result.is_ok());
 
     let codex_result = codex_result.unwrap();
-    assert_eq!(codex_result["serverInfo"]["name"], "TestAgent");
-    assert_eq!(codex_result["serverInfo"]["version"], "2.0.0");
+    let response: doggypile_codex_proto::InitializeResponse =
+        serde_json::from_value(codex_result).expect("typed Codex initialize response");
+    assert!(
+        response.user_agent.contains("TestAgent 2.0.0"),
+        "ACP agent identity should be retained in userAgent: {}",
+        response.user_agent
+    );
+    assert!(!response.codex_home.is_empty());
+    assert_eq!(response.platform_family, std::env::consts::FAMILY);
+    assert_eq!(response.platform_os, std::env::consts::OS);
 }
 
 #[test]
