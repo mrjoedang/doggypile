@@ -8,6 +8,7 @@ import { createThreadCache, THREAD_CACHE_MAX } from './thread-cache.js?v=2026071
 import { relativeTime as rel, short, truncate } from './utils.js?v=20260716-modules';
 import { createAppState, tabKeyFor } from './state.js?v=20260716-modules';
 import { createTabStore } from './tab-store.js?v=20260716-modules';
+import { createConnectionPool } from './connections.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -72,6 +73,26 @@ const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
 const inChat = () => !!state.threadId;
 const activeTab = () => state.tabs.find((t) => t.key === state.active) || null;
+function renderConnection(conn) {
+  renderChips();
+  renderStrip();
+  if (state.screen === 'home') renderSessions();
+  if (state.screen !== 'session') return;
+  const tab = activeTab();
+  if (tab?.deviceId !== conn.dev.id) return;
+  renderMachinePill();
+  if (tab.ephemeral) renderEphemeral(tab);
+  renderCtxBodySoon();
+}
+
+const connectionPool = createConnectionPool({
+  state, connect, makeRpc, NoSupportedAgentError, updateDevice, onNotify, loadThreads, openThread, inChat, renderConnection,
+});
+const connectAllDevices = connectionPool.connectAllDevices;
+const connectDevice = connectionPool.connectDevice;
+const dropConn = connectionPool.dropConnection;
+const scheduleReconnect = connectionPool.scheduleReconnect;
+const markConn = connectionPool.markConnection;
 let tabLifecycleRevision = 0;
 const touchTabLifecycle = (tab) => { tab.lifecycleRevision = ++tabLifecycleRevision; };
 
@@ -262,153 +283,6 @@ function scheduleTabActivityFlush() {
 
 
 
-// --- connection pool ---
-// Every remembered machine keeps its own live connection; the chip row is a
-// view filter, never a connection switch. Each connection reconnects
-// independently with jittered exponential backoff, and a soft display
-// timeout marks slow dials offline long before iroh's 30s give-up.
-
-const SOFT_DIAL_TIMEOUT_MS = 6000;
-const BACKOFF_BASE_MS = 1000;
-const BACKOFF_MAX_MS = 30000;
-
-function connectAllDevices() {
-  for (const dev of state.devices) {
-    if (!state.conns.has(dev.id)) connectDevice(dev);
-  }
-}
-
-function connectDevice(dev, { resetBackoff = false } = {}) {
-  let conn = state.conns.get(dev.id);
-  if (!conn) {
-    conn = {
-      dev,
-      status: 'connecting',
-      attempt: 0,
-      backoffMs: BACKOFF_BASE_MS,
-      transport: null,
-      rpc: null,
-      agent: null,
-      metrics: null,
-      retryTimer: null,
-      softTimer: null,
-      threads: null, // null = never loaded; [] = loaded empty
-      threadsLoading: false,
-      lastDetail: '',
-      everConnected: false,
-    };
-    state.conns.set(dev.id, conn);
-  }
-  if (resetBackoff) conn.backoffMs = BACKOFF_BASE_MS;
-  clearTimeout(conn.retryTimer);
-  conn.retryTimer = null;
-  dialConn(conn);
-  return conn;
-}
-
-async function dialConn(conn) {
-  const attempt = ++conn.attempt;
-  const dev = conn.dev;
-  markConn(conn, 'connecting');
-  clearTimeout(conn.softTimer);
-  // Iroh only gives up after ~30s; show "offline" much sooner while the dial
-  // keeps trying underneath, so a dead machine reads as dead quickly.
-  conn.softTimer = setTimeout(() => {
-    if (conn.attempt === attempt && conn.status === 'connecting') markConn(conn, 'offline', 'not responding');
-  }, SOFT_DIAL_TIMEOUT_MS);
-
-  try {
-    const transport = await connect({
-      nodeId: dev.id,
-      token: dev.token,
-      relay: dev.relay,
-      directAddrs: dev.addrs || [],
-      onToken: (token) => updateDevice(dev.id, { token }),
-      onMetrics: (metrics) => {
-        conn.metrics = metrics;
-        if (metrics.agent) conn.agent = metrics.agent;
-      },
-      onLine: (line) => conn.rpc?.handleLine(line),
-      onClose: () => {
-        if (conn.attempt !== attempt) return;
-        markConn(conn, 'offline', 'connection closed');
-        scheduleReconnect(conn);
-      },
-    });
-    if (conn.attempt !== attempt) { transport.close(); return; }
-    conn.transport = transport;
-    conn.agent = transport.agent || conn.agent;
-    conn.rpc = makeRpc(transport, { onNotify: (msg) => onNotify(conn, msg) });
-    await conn.rpc.initialize();
-    if (conn.attempt !== attempt) return;
-    clearTimeout(conn.softTimer);
-    conn.backoffMs = BACKOFF_BASE_MS;
-    conn.everConnected = true;
-    updateDevice(dev.id, { lastConnectedAt: Date.now(), lastError: null });
-    markConn(conn, 'connected');
-    loadThreads(conn);
-    if (inChat() && state.threadDeviceId === dev.id) {
-      // The chat we're looking at lives on this machine: re-subscribe.
-      openThread(dev.id, state.threadId, state.threadTitle);
-    }
-  } catch (e) {
-    if (conn.attempt !== attempt) return;
-    clearTimeout(conn.softTimer);
-    const detail = e instanceof Error ? e.message : String(e);
-    if (/already-used|invalid/i.test(detail)) {
-      // This machine's pairing is dead. Keep the entry (name, history) so a
-      // re-scan upserts back into place, but stop retrying.
-      updateDevice(dev.id, { lastError: 'pairing expired' });
-      markConn(conn, 'expired', 'pairing expired — re-scan its QR');
-      return;
-    }
-    if (e instanceof NoSupportedAgentError) {
-      conn.installable = !!e.hostCapabilities?.includes('install_agent');
-      markConn(conn, 'noagent', detail);
-      return;
-    }
-    updateDevice(dev.id, { lastError: detail, lastErrorAt: Date.now() });
-    markConn(conn, 'offline', detail);
-    scheduleReconnect(conn);
-  }
-}
-
-function scheduleReconnect(conn, delayMs) {
-  if (conn.retryTimer || !state.conns.has(conn.dev.id)) return;
-  const jitter = 0.7 + Math.random() * 0.6; // ±30%
-  const delay = delayMs ?? Math.round(conn.backoffMs * jitter);
-  conn.backoffMs = Math.min(conn.backoffMs * 2, BACKOFF_MAX_MS);
-  conn.retryTimer = setTimeout(() => {
-    conn.retryTimer = null;
-    dialConn(conn);
-  }, delay);
-}
-
-function markConn(conn, status, detail) {
-  conn.status = status;
-  if (detail !== undefined) conn.lastDetail = detail || '';
-  renderChips();
-  renderStrip();
-  if (state.screen === 'home') renderSessions();
-  if (state.screen === 'session') {
-    const tab = activeTab();
-    if (tab?.deviceId === conn.dev.id) {
-      renderMachinePill();
-      if (tab.ephemeral) renderEphemeral(tab);
-      renderCtxBodySoon();
-    }
-  }
-}
-
-function dropConn(id) {
-  const conn = state.conns.get(id);
-  if (!conn) return;
-  conn.attempt++; // invalidate in-flight dials and close callbacks
-  clearTimeout(conn.retryTimer);
-  clearTimeout(conn.softTimer);
-  try { conn.transport?.close(); } catch { /* already closed */ }
-  state.conns.delete(id);
-}
 
 let railMockSeeded = false;
 async function loadThreads(conn) {
