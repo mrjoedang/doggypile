@@ -9,6 +9,7 @@ import { relativeTime as rel, short, truncate } from './utils.js?v=20260716-modu
 import { createAppState, tabKeyFor } from './state.js?v=20260716-modules';
 import { createTabStore } from './tab-store.js?v=20260716-modules';
 import { createConnectionPool } from './connections.js?v=20260716-modules';
+import { createViewPrimitives } from './view-primitives.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -53,6 +54,9 @@ const icon = (name, cls = 'icon') => {
   s.innerHTML = ICONS[name];
   return s;
 };
+const viewPrimitives = createViewPrimitives({ icon });
+const stateBox = viewPrimitives.stateBox;
+const toast = viewPrimitives.toast;
 
 const state = createAppState();
 const { loadDevices, persistDevices, updateDevice, upsertFromFragment } = createDeviceRegistry({
@@ -403,32 +407,6 @@ function updateComposer() {
   $('#send').disabled = !$('#input').value.trim() || !(state.threadId || ephemeralReady);
 }
 
-// --- centered state blocks (pairing / loading / error / empty) ---
-function stateBox({ icon: iconName, spinner, title, body, action }) {
-  const box = el('div', 'state view');
-  if (spinner) box.append(el('div', 'spinner'));
-  if (iconName) box.append(icon(iconName, 'state-icon'));
-  if (title) box.append(el('div', 'state-title', title));
-  if (body) {
-    const p = el('p', 'state-body');
-    typeof body === 'string' ? (p.textContent = body) : p.append(...body);
-    box.append(p);
-  }
-  if (action) box.append(action);
-  return box;
-}
-
-let toastTimer = null;
-function toast(msg) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.hidden = false;
-  t.classList.remove('show');
-  void t.offsetWidth; // restart the slide-in animation
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
-}
 
 async function boot() {
   try { state.ctxOpen = localStorage.getItem('doggypile:ctxOpen') !== '0'; } catch { /* default open */ }
