@@ -4,6 +4,8 @@
 //! `web_assets`; this module only parses a minimal HTTP request and writes its
 //! catalog result to a TCP stream.
 
+use std::fmt::Write as _;
+use std::io::Write as _;
 use std::net::SocketAddr;
 
 use anyhow::Context;
@@ -11,6 +13,7 @@ use clap::Args;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
+use crate::cli::presentation::{Theme, push_row};
 use crate::web_assets::{self, NO_CACHE};
 
 #[derive(Args, Debug)]
@@ -31,7 +34,11 @@ pub async fn run(args: WebArgs) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding embedded web server on http://{addr}"))?;
-    println!("serving embedded doggypile PWA at http://{addr}");
+    let bound_addr = listener.local_addr().context("reading bound web address")?;
+    print!("{}", render_ready(bound_addr, Theme::stdout()));
+    std::io::stdout()
+        .flush()
+        .context("flushing web server status")?;
 
     loop {
         let (mut stream, _) = listener.accept().await?;
@@ -69,5 +76,59 @@ pub async fn run(args: WebArgs) -> anyhow::Result<()> {
             let _ = stream.write_all(header.as_bytes()).await;
             let _ = stream.write_all(body).await;
         });
+    }
+}
+
+fn render_ready(addr: SocketAddr, theme: Theme) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "\n  {} {} {}\n",
+        theme.green("●"),
+        theme.bold(crate::binary_name()),
+        theme.dim("· embedded web")
+    );
+    push_row(
+        &mut out,
+        &theme,
+        theme.cyan("➜"),
+        "Server",
+        theme.cyan(format!("http://{addr}")),
+    );
+    let access = if addr.ip().is_loopback() {
+        "this machine only".to_string()
+    } else if addr.ip().is_unspecified() {
+        "all network interfaces".to_string()
+    } else {
+        format!("network interface {}", addr.ip())
+    };
+    push_row(&mut out, &theme, theme.dim("·"), "Access", access);
+    let _ = writeln!(out, "\n  {} stops the server.\n", theme.bold("Ctrl-C"));
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_output_describes_loopback_access() {
+        let output = render_ready("127.0.0.1:8123".parse().unwrap(), Theme::new(false));
+        assert!(output.contains("doggypile · embedded web"), "{output}");
+        assert!(output.contains("http://127.0.0.1:8123"), "{output}");
+        assert!(output.contains("this machine only"), "{output}");
+        assert!(output.contains("Ctrl-C"), "{output}");
+    }
+
+    #[test]
+    fn ready_output_calls_out_all_interface_binding() {
+        let output = render_ready("0.0.0.0:8123".parse().unwrap(), Theme::new(false));
+        assert!(output.contains("all network interfaces"), "{output}");
+    }
+
+    #[test]
+    fn ready_output_formats_ipv6_as_a_valid_url() {
+        let output = render_ready("[::1]:8123".parse().unwrap(), Theme::new(false));
+        assert!(output.contains("http://[::1]:8123"), "{output}");
     }
 }
