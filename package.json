@@ -14,6 +14,7 @@
     "build:daemon": "cd daemon && cargo build --release -p doggypile --bin doggypile",
     "build:wasm": "wasm/build.sh",
     "check:wasm-assets": "node scripts/package-wasm.mjs check",
+    "test:web": "node scripts/test-web.mjs",
     "release:dry-run": "node scripts/publish.mjs --dry-run",
     "release:check": "node scripts/publish.mjs --simulate",
     "prepare": "git config core.hooksPath scripts/hooks"

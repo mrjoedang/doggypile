@@ -1,9 +1,12 @@
-name: Embedded web assets
+name: Web
 
 on:
   pull_request:
     paths:
       - 'web/**'
+      - 'test/**'
+      - 'scripts/test-web.mjs'
+      - 'package.json'
       - 'daemon/crates/doggypile/build.rs'
       - 'daemon/crates/doggypile/src/web_assets.rs'
       - 'daemon/crates/doggypile/src/cli/web.rs'
@@ -11,13 +14,25 @@ on:
   push:
     paths:
       - 'web/**'
+      - 'test/**'
+      - 'scripts/test-web.mjs'
+      - 'package.json'
       - 'daemon/crates/doggypile/build.rs'
       - 'daemon/crates/doggypile/src/web_assets.rs'
       - 'daemon/crates/doggypile/src/cli/web.rs'
       - '.github/workflows/embedded-web-assets.yml'
 
 jobs:
-  catalog:
+  browser-modules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm run test:web
+
+  embedded-catalog:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,6 +44,3 @@ jobs:
         with:
           workspaces: daemon
       - run: cargo test -p doggypile web_assets::tests
-      - name: Check production JavaScript syntax
-        working-directory: .
-        run: find web -type f -name '*.js' ! -name 'mock.js' ! -name '*.bak' -print0 | sort -z | xargs -0 -n1 node --check
