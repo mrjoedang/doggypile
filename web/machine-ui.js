@@ -340,6 +340,10 @@ export function createMachineUI({ model, persistence, connection, workspace, vie
     return true;
   }
 
+  function openMenu(anchor, label, build) {
+    anchor?.setAttribute('aria-expanded', 'true');
+    openSurface('menu', build, { anchor, label });
+  }
   function destroy() { closeSurface(false); for (const cleanup of [...gestureCleanups]) cleanup(); }
-  return { renderChips, renderMachineSelect, openMachineSelect, openMachineActions, machineDetails, pairDialog, installOnConnection, closeSurface, hasSurface: () => !!surface, handleKeydown, destroy };
+  return { renderChips, renderMachineSelect, openMachineSelect, openMachineActions, machineDetails, pairDialog, installOnConnection, openMenu, closeSurface, hasSurface: () => !!surface, handleKeydown, destroy };
 }
