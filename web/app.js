@@ -4,6 +4,7 @@ import { renderMarkdown } from './markdown.js?v=20260714-tabs';
 import { createSessionRail } from './rail.js?v=20260716-preview-card';
 import { $, el, haptic, hapticize, layout, navigate } from './platform.js?v=20260716-modules';
 import { createDeviceRegistry, deviceLabel } from './devices.js?v=20260716-modules';
+import { createThreadCache, THREAD_CACHE_MAX } from './thread-cache.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -73,6 +74,12 @@ const { loadDevices, persistDevices, updateDevice, upsertFromFragment } = create
   mock: MOCK,
   state,
 });
+const threadCacheStore = createThreadCache({ mock: MOCK });
+const threadCache = threadCacheStore.entries;
+const loadThreadCache = threadCacheStore.load;
+const persistThreadCache = threadCacheStore.persist;
+const cacheThread = threadCacheStore.put;
+const purgeThreadCache = threadCacheStore.purgeDevice;
 
 const connFor = (id) => state.conns.get(id);
 const activeConn = () => (state.threadDeviceId ? connFor(state.threadDeviceId) : null);
@@ -1981,52 +1988,6 @@ const chat = {
   renderTurnActive: false,
 };
 
-// --- thread cache (stale-while-revalidate) ---
-// Last hydrated state of recently opened threads, keyed `deviceId:threadId`.
-// Opening a cached thread paints instantly from here while a fresh
-// thread/read runs behind it; renderChat reconciles by item id, so the
-// refresh diffs in without a flash. Persisted so cold launches (and offline
-// machines) still show the last known conversation.
-const THREADS_KEY = 'doggypile:threads';
-const THREAD_CACHE_MAX = 12;
-const threadCache = new Map(); // key -> { thread, at }
-
-function loadThreadCache() {
-  if (MOCK) return;
-  try {
-    const saved = JSON.parse(localStorage.getItem(THREADS_KEY) || 'null');
-    if (saved?.v === 1) {
-      for (const [k, e] of Object.entries(saved.entries || {})) {
-        if (e?.thread) threadCache.set(k, e);
-      }
-    }
-  } catch { /* corrupted cache: start empty */ }
-}
-
-function persistThreadCache() {
-  if (MOCK) return;
-  try {
-    const entries = Object.fromEntries(threadCache);
-    const json = JSON.stringify({ v: 1, entries });
-    if (json.length < 2_000_000) localStorage.setItem(THREADS_KEY, json);
-  } catch { /* quota exceeded: cache stays in-memory only */ }
-}
-
-function cacheThread(key, thread) {
-  threadCache.set(key, { thread, at: Date.now() });
-  while (threadCache.size > THREAD_CACHE_MAX) {
-    const oldest = [...threadCache.entries()].sort((a, b) => a[1].at - b[1].at)[0][0];
-    threadCache.delete(oldest);
-  }
-  persistThreadCache();
-}
-
-function purgeThreadCache(deviceId) {
-  for (const k of [...threadCache.keys()]) {
-    if (k.startsWith(`${deviceId}:`)) threadCache.delete(k);
-  }
-  persistThreadCache();
-}
 
 // The scrub preview card shows the tail of each session's conversation from
 // the same sources the chat itself paints from: the live projection for the
