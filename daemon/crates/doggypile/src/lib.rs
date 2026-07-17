@@ -16,6 +16,7 @@ mod state;
 mod stream;
 #[cfg(test)]
 mod test_support;
+mod web_assets;
 
 use std::sync::OnceLock;
 
