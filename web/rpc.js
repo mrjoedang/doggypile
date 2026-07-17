@@ -1,9 +1,11 @@
 // Minimal JSON-RPC 2.0 client over a line transport, plus codex's
 // initialize handshake. Requests resolve on their matching {id,result}.
-// Server notifications (streaming items) are delivered to onNotify.
+// Server notifications are delivered to onNotify; close() rejects every
+// request still owned by the client when its transport is torn down.
 export function makeRpc(transport, { onNotify } = {}) {
   let nextId = 1;
   const pending = new Map();
+  let closedError = null;
 
   function handleLine(line) {
     let msg;
@@ -20,12 +22,14 @@ export function makeRpc(transport, { onNotify } = {}) {
   }
 
   function request(method, params = {}) {
+    if (closedError) return Promise.reject(closedError);
     const id = nextId++;
     transport.sendLine(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
     return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
   }
 
   function notify(method, params = {}) {
+    if (closedError) return;
     transport.sendLine(JSON.stringify({ jsonrpc: '2.0', method, params }));
   }
 
@@ -38,5 +42,12 @@ export function makeRpc(transport, { onNotify } = {}) {
     return res;
   }
 
-  return { handleLine, request, notify, initialize };
+  function close(error = new Error('RPC transport closed')) {
+    if (closedError) return;
+    closedError = error;
+    for (const { reject } of pending.values()) reject(error);
+    pending.clear();
+  }
+
+  return { handleLine, request, notify, initialize, close };
 }

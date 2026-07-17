@@ -1,5 +1,10 @@
 import { $, el } from './platform.js?v=20260716-modules';
 
+/**
+ * Creates shared stateless view builders and owns the one pending toast-hide
+ * timer. `destroy()` cancels that timer and is safe to call repeatedly.
+ */
+
 export function createViewPrimitives({ icon }) {
   let toastTimer = null;
 
@@ -26,8 +31,13 @@ export function createViewPrimitives({ icon }) {
     void node.offsetWidth;
     node.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { node.hidden = true; }, 4000);
+    toastTimer = setTimeout(() => { toastTimer = null; node.hidden = true; }, 4000);
   }
 
-  return { stateBox, toast };
+  function destroy() {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+
+  return { stateBox, toast, destroy };
 }

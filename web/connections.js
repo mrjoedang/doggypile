@@ -1,3 +1,13 @@
+/**
+ * Owns the connection records in `state.conns`, their transports, dial/soft
+ * timeout timers, and reconnect backoff. `reconnect(connection)` immediately
+ * redials the same record; `destroy()` permanently stops the pool and releases
+ * every owned timer and transport. Both teardown operations tolerate late dial
+ * completions and transport close callbacks.
+ *
+ * Non-responsibilities: device persistence, RPC protocol details, thread
+ * storage/rendering, and remote-agent installation UI.
+ */
 const SOFT_DIAL_TIMEOUT_MS = 6000;
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_MAX_MS = 30000;
@@ -14,13 +24,16 @@ export function createConnectionPool({
   inChat,
   renderConnection,
 }) {
+  let disposed = false;
   function connectAllDevices() {
+    if (disposed) return;
     for (const device of state.devices) {
       if (!state.conns.has(device.id)) connectDevice(device);
     }
   }
 
   function connectDevice(device, { resetBackoff = false } = {}) {
+    if (disposed) return null;
     let connection = state.conns.get(device.id);
     if (!connection) {
       connection = {
@@ -49,6 +62,7 @@ export function createConnectionPool({
   }
 
   async function dial(connection) {
+    if (disposed || state.conns.get(connection.dev.id) !== connection) return;
     const attempt = ++connection.attempt;
     const device = connection.dev;
     mark(connection, 'connecting');
@@ -72,17 +86,17 @@ export function createConnectionPool({
         },
         onLine: (line) => connection.rpc?.handleLine(line),
         onClose: () => {
-          if (connection.attempt !== attempt) return;
+          if (disposed || connection.attempt !== attempt || state.conns.get(device.id) !== connection) return;
           mark(connection, 'offline', 'connection closed');
           scheduleReconnect(connection);
         },
       });
-      if (connection.attempt !== attempt) { transport.close(); return; }
+      if (disposed || connection.attempt !== attempt || state.conns.get(device.id) !== connection) { transport.close(); return; }
       connection.transport = transport;
       connection.agent = transport.agent || connection.agent;
       connection.rpc = makeRpc(transport, { onNotify: (message) => onNotify(connection, message) });
       await connection.rpc.initialize();
-      if (connection.attempt !== attempt) return;
+      if (disposed || connection.attempt !== attempt || state.conns.get(device.id) !== connection) return;
       clearTimeout(connection.softTimer);
       connection.backoffMs = BACKOFF_BASE_MS;
       connection.everConnected = true;
@@ -93,7 +107,7 @@ export function createConnectionPool({
         openThread(device.id, state.threadId, state.threadTitle);
       }
     } catch (error) {
-      if (connection.attempt !== attempt) return;
+      if (disposed || connection.attempt !== attempt || state.conns.get(device.id) !== connection) return;
       clearTimeout(connection.softTimer);
       const detail = error instanceof Error ? error.message : String(error);
       if (/already-used|invalid/i.test(detail)) {
@@ -113,14 +127,32 @@ export function createConnectionPool({
   }
 
   function scheduleReconnect(connection, delayMs) {
-    if (connection.retryTimer || !state.conns.has(connection.dev.id)) return;
+    if (disposed || connection.retryTimer || state.conns.get(connection.dev.id) !== connection) return;
     const jitter = 0.7 + Math.random() * 0.6;
     const delay = delayMs ?? Math.round(connection.backoffMs * jitter);
     connection.backoffMs = Math.min(connection.backoffMs * 2, BACKOFF_MAX_MS);
     connection.retryTimer = setTimeout(() => {
       connection.retryTimer = null;
-      dial(connection);
+      if (!disposed && state.conns.get(connection.dev.id) === connection) dial(connection);
     }, delay);
+  }
+
+  function reconnect(connection, { resetBackoff = true } = {}) {
+    if (disposed || !connection || state.conns.get(connection.dev.id) !== connection) return connection || null;
+    connection.attempt++;
+    clearTimeout(connection.retryTimer);
+    clearTimeout(connection.softTimer);
+    connection.retryTimer = null;
+    connection.softTimer = null;
+    if (resetBackoff) connection.backoffMs = BACKOFF_BASE_MS;
+    const transport = connection.transport;
+    const rpc = connection.rpc;
+    connection.transport = null;
+    connection.rpc = null;
+    rpc?.close?.();
+    try { transport?.close(); } catch { /* already closed */ }
+    dial(connection);
+    return connection;
   }
 
   function mark(connection, status, detail) {
@@ -135,15 +167,30 @@ export function createConnectionPool({
     connection.attempt++;
     clearTimeout(connection.retryTimer);
     clearTimeout(connection.softTimer);
-    try { connection.transport?.close(); } catch { /* already closed */ }
+    connection.retryTimer = null;
+    connection.softTimer = null;
+    const transport = connection.transport;
+    const rpc = connection.rpc;
+    connection.transport = null;
+    connection.rpc = null;
     state.conns.delete(id);
+    rpc?.close?.();
+    try { transport?.close(); } catch { /* already closed */ }
+  }
+
+  function destroy() {
+    if (disposed) return;
+    disposed = true;
+    for (const id of [...state.conns.keys()]) dropConnection(id);
   }
 
   return {
     connectAllDevices,
     connectDevice,
+    reconnect,
     dropConnection,
     scheduleReconnect,
     markConnection: mark,
+    destroy,
   };
 }

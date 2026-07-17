@@ -25,18 +25,19 @@ export function parsePairLink(text) {
  * Deep application-shell factory.
  *
  * Responsibility: boot/restore orchestration, single-tab pool ownership,
- * follower takeover, Home/session switching and history, onboarding, install,
- * retry, and the merged Home session list.
+ * follower takeover, Home/session switching and history, onboarding, retry,
+ * and the merged Home session list.
  *
- * Owned state: Web Lock release callback, BroadcastChannel, copy/resize timers,
+ * Owned state: Web Lock release callback, BroadcastChannel, copy timer,
  * listener lifetime, and shell mode/screen fields in `state`.
  *
  * Dependencies: `machine` owns paired-device persistence/connections;
- * `workspace` owns tabs/strip/session chrome; `context` owns context teardown;
- * `chat` owns draft/projection reset. `ui` supplies existing DOM primitives.
+ * `workspace` owns tabs/strip/session chrome and ordinary resize rendering;
+ * `context` owns context teardown; `chat` owns draft/projection reset. `ui`
+ * supplies existing DOM primitives.
  *
  * Returned interface: boot, dispose, renderHome, showHome, showUnpaired,
- * showScreen, pairFromLink, retry/install/copy helpers, and isLeader.
+ * showScreen, pairFromLink, retry/copy helpers, and isLeader.
  *
  * Invariants: at most one non-mock tab runs the pool when Web Locks work;
  * yielding closes every connection before releasing; follower mode never dials;
@@ -44,12 +45,12 @@ export function parsePairLink(text) {
  * history restoration happens before the first connection is opened.
  *
  * Non-responsibilities: protocol/RPC implementation, chat rendering, tab chrome,
- * machine menus, context contents, and connection backoff policy.
+ * machine menus and install flow, context contents, resize rendering, and
+ * connection backoff policy.
  */
 export function createHomeShell({
   state,
   mock = false,
-  installAgent,
   tabKeyFor,
   machine,
   workspace,
@@ -74,7 +75,6 @@ export function createHomeShell({
   let releaseLeadership = null;
   let disposed = false;
   let copiedTimer = null;
-  let resizeRaf = 0;
   const channel = !mock && win.BroadcastChannel ? new win.BroadcastChannel('doggypile:tabs') : null;
 
   const listen = (target, type, fn, options) => {
@@ -151,25 +151,10 @@ export function createHomeShell({
   }
 
   function retryAllStale() {
-    for (const connection of state.conns.values()) if (connection.status === 'offline') {
-      clearTimer(connection.retryTimer); connection.retryTimer = null;
-      machine.connectDevice(connection.dev, { resetBackoff: true });
+    for (const connection of state.conns.values()) {
+      if (connection.status === 'offline') machine.reconnect(connection);
     }
   }
-
-  async function installOnConnection(connection) {
-    if (!connection.installable) { toast('No supported agent on this machine, and its daemon is too old for remote install. Restart doggypile there from a newer build.'); return; }
-    if (!win.confirm(`No supported agent on ${label(connection.dev)}. Install opencode there now?\n\nThis will run:\ncurl -fsSL https://opencode.ai/install | bash`)) return;
-    machine.markConnection(connection, 'connecting', 'installing opencode'); toast(`Installing opencode on ${label(connection.dev)}…`);
-    try {
-      await installAgent({ nodeId: connection.dev.id, token: connection.dev.token, relay: connection.dev.relay, directAddrs: connection.dev.addrs || [], agent: 'opencode', onToken: (token) => machine.updateDevice(connection.dev.id, { token }) });
-    } catch (error) {
-      let detail = error instanceof Error ? error.message : String(error); if (/stream closed/i.test(detail)) detail = 'the daemon closed the install request — it may be too old';
-      machine.markConnection(connection, 'noagent', detail); toast(`opencode install failed on ${label(connection.dev)}: ${detail}`); return;
-    }
-    machine.connectDevice(connection.dev, { resetBackoff: true });
-  }
-
   function skeletonList(count = 5) { const wrap = el('div', 'view'); for (let i = 0; i < count; i++) { const row = el('div', 'skeleton-row'); row.append(el('div', 'skeleton-bar long'), el('div', 'skeleton-bar short')); wrap.append(row); } return wrap; }
 
   function sessionRow(thread, connection) {
@@ -251,12 +236,12 @@ export function createHomeShell({
   async function onChannel(event) { if (event.data !== 'takeover' || !releaseLeadership) return; for (const id of [...state.conns.keys()]) machine.dropConnection(id); releaseLeadership(); releaseLeadership = null; await ensureLeadership(); startPool(); }
   function onVisibility() { if (doc.hidden) return; retryAllStale(); const tab = activeTab(); if (tab?.unread && workspace.tabIsViewed(tab)) { workspace.markTabViewed(tab); workspace.persistTabs(); workspace.renderStrip(); } }
   function onPopState(event) { context.closeSurface?.(false); if (!state.devices.length || state.mode !== 'normal') return; chat.stashDraft(); const entry = event.state; if (entry?.threadId) { const deviceId = entry.deviceId || state.devices[0]?.id; navigate(() => workspace.openTabForThread(deviceId, entry.threadId, entry.title || '', { history: 'none' })); } else if (entry?.ephemeral && state.tabs.some((tab) => tab.key === entry.tabKey)) navigate(() => workspace.selectTab(entry.tabKey, { history: 'none' })); else navigate(showHome); }
-  function onResize() { win.cancelAnimationFrame(resizeRaf); resizeRaf = win.requestAnimationFrame(workspace.renderStrip); }
-  listen(channel, 'message', onChannel); listen(doc, 'visibilitychange', onVisibility); listen(win, 'online', retryAllStale); listen(win, 'popstate', onPopState); listen(win, 'resize', onResize);
+  listen(channel, 'message', onChannel); listen(doc, 'visibilitychange', onVisibility); listen(win, 'online', retryAllStale); listen(win, 'popstate', onPopState);
   listen($('#search'), 'input', (event) => { state.query = event.target.value; renderHome(); });
-  $('#home-btn').onclick = () => { if (state.screen === 'home' || state.mode !== 'normal') return; navigate(() => { showHome(); if (hist.state?.threadId || hist.state?.ephemeral) hist.replaceState(null, ''); }); };
-  $('#tab-new').onclick = workspace.newSessionTab; $('#home-new').onclick = workspace.newSessionTab;
+  listen($('#home-btn'), 'click', () => { if (state.screen === 'home' || state.mode !== 'normal') return; navigate(() => { showHome(); if (hist.state?.threadId || hist.state?.ephemeral) hist.replaceState(null, ''); }); });
+  listen($('#tab-new'), 'click', workspace.newSessionTab);
+  listen($('#home-new'), 'click', workspace.newSessionTab);
 
-  function dispose() { disposed = true; listeners.splice(0).forEach((remove) => remove()); clearTimer(copiedTimer); win.cancelAnimationFrame(resizeRaf); channel?.close(); for (const id of [...state.conns.keys()]) machine.dropConnection(id); releaseLeadership?.(); releaseLeadership = null; }
-  return { boot, dispose, renderHome, showHome, showUnpaired, showScreen, pairFromLink, retryAllStale, installOnConnection, copyText, get isLeader() { return mock || !nav.locks || !!releaseLeadership; } };
+  function dispose() { disposed = true; listeners.splice(0).forEach((remove) => remove()); clearTimer(copiedTimer); channel?.close(); for (const id of [...state.conns.keys()]) machine.dropConnection(id); releaseLeadership?.(); releaseLeadership = null; }
+  return { boot, dispose, renderHome, showHome, showUnpaired, showScreen, pairFromLink, retryAllStale, copyText, get isLeader() { return mock || !nav.locks || !!releaseLeadership; } };
 }
