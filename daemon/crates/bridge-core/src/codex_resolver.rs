@@ -412,6 +412,19 @@ mod tests {
         write_fake_codex(&old_dir.join("codex"), "codex-cli 0.31.0");
         write_fake_codex(&new_dir.join("codex"), "codex-cli 0.130.0.dev-20260514");
 
+        // Keep candidate discovery hermetic while retaining the external tools
+        // used by the resolver's version parser.
+        let tools_dir = temp.path().join("tools");
+        std::fs::create_dir_all(&tools_dir).unwrap();
+        let original_path = std::env::var_os("PATH").unwrap_or_default();
+        for name in ["awk", "tr"] {
+            let source = std::env::split_paths(&original_path)
+                .map(|dir| dir.join(name))
+                .find(|path| is_executable_file(path))
+                .unwrap_or_else(|| panic!("{name} not found on test PATH"));
+            std::os::unix::fs::symlink(source, tools_dir.join(name)).unwrap();
+        }
+
         let script = POSIX_RESOLVE_CODEX_BINARY
             .replace("{{PROFILE_INIT}}", "")
             .replace("{{PACKAGE_MANAGER_PROBE}}", "")
@@ -419,13 +432,7 @@ mod tests {
                 "{{SHARED_LINES}}",
                 "_litter_consider_path_candidates codex codex",
             );
-        let original_path = std::env::var("PATH").unwrap_or_default();
-        let path_value = format!(
-            "{}:{}:{}",
-            old_dir.display(),
-            new_dir.display(),
-            original_path
-        );
+        let path_value = std::env::join_paths([&old_dir, &new_dir, &tools_dir]).unwrap();
         let output = StdCommand::new("/bin/sh")
             .arg("-c")
             .arg(script)
