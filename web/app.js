@@ -2,6 +2,7 @@ import { makeRpc } from './rpc.js?v=20260714-tabs';
 import { createProjection } from './projection.js?v=20260714-tabs';
 import { renderMarkdown } from './markdown.js?v=20260714-tabs';
 import { createSessionRail } from './rail.js?v=20260716-preview-card';
+import { $, el, haptic, hapticize, layout, navigate } from './platform.js?v=20260716-modules';
 
 // `?mock` swaps the iroh transport for a scripted in-page daemon (mock.js) so
 // the whole UI can be developed in a plain browser tab.
@@ -13,13 +14,6 @@ const MOCK = !!mockMod;
 const RAIL_MOCK = MOCK && requestedRailMock;
 const { connect, installAgent, NoSupportedAgentError } = mockMod || await import('./transport.js?v=20260714-tabs');
 
-const $ = (sel) => document.querySelector(sel);
-const el = (tag, cls, text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-};
 
 // Static, trusted SVG markup only — never message content.
 const ICONS = {
@@ -267,54 +261,6 @@ function scheduleTabActivityFlush() {
   }, 300);
 }
 
-// --- responsive layout ---
-const mqDesk = matchMedia('(min-width: 1100px)');
-const mqTab = matchMedia('(min-width: 700px)');
-const layout = () => (mqDesk.matches ? 'desktop' : mqTab.matches ? 'tablet' : 'mobile');
-
-// --- haptics ---
-// iOS Safari has no vibration API, and it does NOT fire a haptic for
-// programmatic toggles of a switch control — only for a physical tap on
-// one. So the trick (per tijnjh/ios-haptics) is to overlay a full-size,
-// invisible native switch (<input type="checkbox" switch>, iOS 17.4+)
-// inside the button: the finger really toggles a real switch (system
-// haptic), and the click bubbles on to the button's own handler. If Apple
-// ever removes the control, the overlay is just an invisible checkbox —
-// silent, harmless. Android gets navigator.vibrate in the handlers instead.
-// Overlays go on deliberately few controls — commitments and state
-// changes, never mere touches — keep it that way. Never put one inside a
-// scroll gesture surface: the native input can capture a pan as a toggle.
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-function hapticize(btn) {
-  if (!IS_IOS || !btn || btn.querySelector('.hswitch')) return;
-  const sw = document.createElement('input');
-  sw.type = 'checkbox';
-  sw.setAttribute('switch', '');
-  sw.className = 'hswitch';
-  sw.tabIndex = -1;
-  sw.setAttribute('aria-hidden', 'true');
-  btn.append(sw);
-}
-
-// Android path: a real vibration API, called from the handlers.
-function haptic() {
-  navigator.vibrate?.(10);
-}
-
-// --- view transitions ---
-// Navigation-level swaps only (home <-> session, tab select, filter changes),
-// and only a plain crossfade — shared-element morphs proved too distracting
-// for an action performed dozens of times a day. Streaming ticks and
-// reconnect repaints never go through here: transitions capture snapshots
-// and briefly intercept input, which would jank a live turn.
-const VT = !!document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-if (VT) document.documentElement.classList.add('vt');
-function navigate(update) {
-  if (!VT) { update(); return; }
-  document.startViewTransition(() => { update(); });
-}
 
 // --- device registry ---
 // One phone can hold pairings to many daemons. Persisted as
