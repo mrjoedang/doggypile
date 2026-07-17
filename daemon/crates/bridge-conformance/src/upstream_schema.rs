@@ -8,11 +8,11 @@
 //! validates each frame against them; a violation here is a real wire-spec
 //! gap the bridge needs to fix.
 //!
-//! Skip-on-missing: the schema dir defaults to
-//! `~/dev/codex/codex-rs/app-server-protocol/schema/json/v2/`. If absent,
-//! validation panics unless `BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA=1` is
-//! set. Silent schema skips hide exactly the drift this harness is meant to
-//! catch.
+//! Strict-on-missing: live and integration conformance defaults to
+//! `~/dev/codex/codex-rs/app-server-protocol/schema/json/v2/` and panics when
+//! it is absent unless `BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA=1` is set.
+//! Crate-local unit tests skip only a missing default checkout so ordinary
+//! `cargo test --workspace` remains hermetic; explicit invalid overrides still panic.
 //!
 //! Method/notification → schema mapping is built from the upstream filename
 //! convention: response of `thread/read` lives in `ThreadReadResponse.json`,
@@ -34,6 +34,7 @@ const DEFAULT_REL: &str = "dev/codex/codex-rs/app-server-protocol/schema/json/v2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaSkipReason {
     ExplicitSkip,
+    MissingDefaultInUnitTest,
 }
 
 /// Directory holding the upstream v2 JSON schema files.
@@ -56,14 +57,20 @@ pub fn schema_dir() -> Result<PathBuf, SchemaSkipReason> {
         if candidate.is_dir() {
             return Ok(candidate);
         }
+        if cfg!(test) {
+            return Err(SchemaSkipReason::MissingDefaultInUnitTest);
+        }
         panic_missing(Some(candidate));
+    }
+    if cfg!(test) {
+        return Err(SchemaSkipReason::MissingDefaultInUnitTest);
     }
     panic_missing(None);
 }
 
 /// Validate a single captured frame against its upstream schema. Returns
-/// `Ok(())` when validation is explicitly skipped or the frame validates;
-/// otherwise returns the validator's error list joined into one human-readable
+/// `Ok(())` when validation is explicitly skipped, a unit-test build lacks the
+/// default checkout, or the frame validates; otherwise returns the validator's
 /// message.
 pub fn validate(frame: &Frame, target: TargetId) -> Result<(), String> {
     let Some(schema_path) = path_for_frame(frame) else {
@@ -144,7 +151,9 @@ fn is_known_stale_schema_miss(frame: &Frame, target: TargetId, errors: &[String]
 fn path_for_frame(frame: &Frame) -> Option<PathBuf> {
     let dir = match schema_dir() {
         Ok(dir) => dir,
-        Err(SchemaSkipReason::ExplicitSkip) => return None,
+        Err(SchemaSkipReason::ExplicitSkip | SchemaSkipReason::MissingDefaultInUnitTest) => {
+            return None;
+        }
     };
     let stem = match frame.kind {
         FrameKind::Response => format!("{}Response", method_to_pascal(&frame.method)),
