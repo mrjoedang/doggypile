@@ -1,6 +1,6 @@
 {
   "name": "doggypile",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": true,
   "description": "Single-binary daemon and browser PWA for chatting with local coding agents from your phone over iroh.",
   "scripts": {
