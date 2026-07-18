@@ -468,7 +468,10 @@ body.unpaired .wstrip { display: none; }
   border-radius: 10px;
   transition: background 0.1s ease;
 }
-.session:hover, .session:active, .session:focus-within { background: var(--surface); }
+.session:focus-within { background: var(--surface); }
+@media (hover: hover) and (pointer: fine) {
+  .session:hover, .session:active { background: var(--surface); }
+}
 .session-open {
   display: flex;
   align-items: center;
